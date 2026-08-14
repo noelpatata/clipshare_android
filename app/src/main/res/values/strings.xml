@@ -2,4 +2,6 @@
 <resources>
     <string name="app_name">ClipShare</string>
     <string name="tile_label">ClipShare</string>
+    <string name="accessibility_label">ClipShare background capture</string>
+    <string name="accessibility_desc">Watches for copies you make in any app and syncs them to your desktop. Only pushes while ClipShare is connected. Enable this to sync copies made outside the ClipShare app on Android 10+.</string>
 </resources>

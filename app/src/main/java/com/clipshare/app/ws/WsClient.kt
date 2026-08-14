@@ -1,5 +1,7 @@
 package com.clipshare.app.ws
 
+import com.clipshare.app.certs.ClientTls
+import com.clipshare.app.logs.Log
 import com.clipshare.app.util.Protocol
 import com.clipshare.app.util.parseClipboard
 import com.clipshare.app.util.parseError
@@ -20,14 +22,19 @@ import java.util.concurrent.TimeUnit
 /**
  * WebSocket client to the clipshare daemon with exponential-backoff reconnect.
  * Calls [onReconnecting] before each attempt so the UI can show state.
+ * When [tls] is given, the connection is upgraded to TLS (wss).
+ * [onConnectFailed] fires after every failed connect attempt; the caller uses
+ * it to advance to the next whitelist candidate (no-op in discover mode).
  */
 class WsClient(
     private val url: String,
     private val hello: String,
+    private val tls: ClientTls?,
     private val onConnected: (name: String, host: String) -> Unit,
-    private val onClipboard: (text: String, from: String) -> Unit,
+    private val onClipboard: (clip: Protocol.Clipboard) -> Unit,
     private val onDisconnected: (reason: String?) -> Unit,
     private val onReconnecting: (attempt: Int) -> Unit,
+    private val onConnectFailed: () -> Unit,
     private val onError: (msg: String) -> Unit,
 ) {
     private val host: String =
@@ -36,6 +43,12 @@ class WsClient(
     private val client = OkHttpClient.Builder()
         .pingInterval(30, TimeUnit.SECONDS)
         .connectTimeout(10, TimeUnit.SECONDS)
+        .apply {
+            val t = tls
+            if (t != null) {
+                sslSocketFactory(t.sslContext.socketFactory, t.trustManager)
+            }
+        }
         .build()
 
     @Volatile
@@ -52,6 +65,7 @@ class WsClient(
     fun start() {
         running = true
         userClosed = false
+        Log.i("WsClient", "start $url")
         scope.launch { runLoop() }
     }
 
@@ -60,6 +74,7 @@ class WsClient(
         userClosed = true
         val s = ws
         if (s != null) {
+            Log.i("WsClient", "stop")
             s.close(1000, "bye")
         }
         ws = null
@@ -68,10 +83,30 @@ class WsClient(
     /** Send clipboard text to the daemon. Returns false when not connected. */
     fun send(text: String, from: String): Boolean {
         val socket = ws ?: return false
-        if (!socket.send(Protocol.clipboard(text, from))) {
+        val msg = Protocol.clipboard(text, from)
+        val ok = socket.send(msg)
+        if (!ok) {
+            Log.w("WsClient", "socket.send returned false")
+        }
+        return ok
+    }
+
+    /** Send an image to the daemon. Returns false when not connected. */
+    fun sendImage(bytes: ByteArray, mime: String, from: String): Boolean {
+        val socket = ws ?: run {
+            Log.w("WsClient", "sendImage: no socket")
             return false
         }
-        return true
+        if (bytes.isEmpty()) return false
+        val msg = Protocol.clipboardImage(bytes, mime, from)
+        Log.i("WsClient", "sendImage: ${bytes.size} bytes -> ${msg.length} char JSON")
+        val ok = socket.send(msg)
+        if (!ok) {
+            Log.w("WsClient", "socket.sendImage returned false")
+        } else {
+            Log.i("WsClient", "sendImage: queued")
+        }
+        return ok
     }
 
     private suspend fun runLoop() {
@@ -84,6 +119,7 @@ class WsClient(
                 backoff = INITIAL_BACKOFF
                 attempt = 0
             } else {
+                onConnectFailed()
                 delay(backoff)
                 backoff = (backoff * 2).coerceAtMost(MAX_BACKOFF)
                 attempt++
@@ -102,6 +138,7 @@ class WsClient(
             override fun onOpen(socket: WebSocket, response: Response) {
                 ws = socket
                 socket.send(hello)
+                Log.i("WsClient", "onOpen")
                 onConnected("", host)
                 synchronized(lock) {
                     ok[0] = true
@@ -113,19 +150,26 @@ class WsClient(
                 when (parseType(text)) {
                     Protocol.MSG_HELLO -> {
                         val name = parseHello(text)
-                        if (name != null) onConnected(name, host)
+                        if (name != null) {
+                            Log.i("WsClient", "hello from $name")
+                            onConnected(name, host)
+                        }
                     }
                     Protocol.MSG_CLIPBOARD -> {
                         val c = parseClipboard(text)
-                        if (c != null && c.text.isNotBlank()) onClipboard(c.text, c.from)
+                        if (c != null && !c.isEmpty) onClipboard(c)
                     }
                     Protocol.MSG_PING -> socket.send(Protocol.pong())
                     Protocol.MSG_PONG -> Unit
-                    Protocol.MSG_ERROR -> parseError(text)?.let { onError(it.msg) }
+                    Protocol.MSG_ERROR -> parseError(text)?.let {
+                        Log.e("WsClient", "daemon error: ${it.msg}")
+                        onError(it.msg)
+                    }
                 }
             }
 
             override fun onClosing(socket: WebSocket, code: Int, reason: String) {
+                Log.i("WsClient", "onClosing $code $reason")
                 socket.close(code, reason)
                 synchronized(lock) {
                     ok[0] = false
@@ -134,6 +178,7 @@ class WsClient(
             }
 
             override fun onClosed(socket: WebSocket, code: Int, reason: String) {
+                Log.i("WsClient", "onClosed $code $reason")
                 ws = null
                 if (running) onDisconnected(null)
                 synchronized(lock) {
@@ -143,8 +188,10 @@ class WsClient(
             }
 
             override fun onFailure(socket: WebSocket, t: Throwable, response: Response?) {
+                val reason = t.message ?: t.javaClass.simpleName
+                Log.e("WsClient", "onFailure: $reason", t)
                 ws = null
-                if (running) onDisconnected(t.message)
+                if (running) onDisconnected(reason)
                 synchronized(lock) {
                     ok[0] = false
                     lock.notifyAll()

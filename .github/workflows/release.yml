@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check merge source is release/*
+        id: merge
+        run: |
+          MESSAGE=$(git log -1 --format=%s "$GITHUB_SHA")
+          VERSION=$(printf '%s' "$MESSAGE" | sed -nE "s/^Merge branch 'release\/([^']+)' into main$/\1/p; s/^Merge pull request #[0-9]+ from [^ ]*\/release\/([^ ]+)$/\1/p")
+          if [ -z "$VERSION" ]; then
+            echo "Skipping: push to main did not come from a release/* merge"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Releasing version $VERSION"
+
+      - name: Set up JDK
+        if: steps.merge.outputs.skip == 'false'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Decode signing keystore
+        if: steps.merge.outputs.skip == 'false'
+        run: |
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          echo "RELEASE_KEYSTORE_PATH=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+
+      - name: Build release APK
+        if: steps.merge.outputs.skip == 'false'
+        run: |
+          VERSION="${{ steps.merge.outputs.version }}"
+          MAJOR=$(printf '%s' "$VERSION" | cut -d. -f1)
+          MINOR=$(printf '%s' "$VERSION" | cut -d. -f2)
+          PATCH=$(printf '%s' "$VERSION" | cut -d. -f3 | cut -d- -f1)
+          VERSION_CODE=$((MAJOR * 10000 + MINOR * 100 + PATCH))
+          ./gradlew assembleRelease -PversionName="$VERSION" -PversionCode="$VERSION_CODE"
+        env:
+          RELEASE_KEYSTORE_PATH: ${{ env.RELEASE_KEYSTORE_PATH }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Create GitHub release
+        if: steps.merge.outputs.skip == 'false'
+        run: |
+          VERSION="${{ steps.merge.outputs.version }}"
+          gh release create "v$VERSION" \
+            app/build/outputs/apk/release/app-release.apk \
+            --target "$GITHUB_SHA" \
+            --title "ClipShare v$VERSION" \
+            --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}

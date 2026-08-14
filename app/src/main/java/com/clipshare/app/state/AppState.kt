@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import com.clipshare.app.history.HistoryEntry
 import com.clipshare.app.history.HistoryStore
+import com.clipshare.app.logs.Log
 import com.clipshare.app.settings.Prefs
 import com.clipshare.app.sync.SyncService
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,6 +16,7 @@ data class DiscoveredDevice(
     val host: String,
     val port: Int,
     val source: String,
+    val tls: Boolean = false,
 )
 
 /** App-wide state shared between the UI, service and tile. */
@@ -52,9 +54,14 @@ object AppState {
     @Volatile
     var lastRemoteWritten: String? = null
 
+    /** Last image bytes the service wrote to the local clipboard (loop protection). */
+    @Volatile
+    var lastRemoteWrittenImage: ByteArray? = null
+
     fun startSync(ctx: Context) {
         _running.value = true
         _status.value = "Starting..."
+        Log.i("AppState", "startSync")
         ctx.startForegroundService(Intent(ctx, SyncService::class.java))
     }
 
@@ -64,12 +71,14 @@ object AppState {
         _connected.value = false
         _serverName.value = null
         _connectedIp.value = null
+        Log.i("AppState", "stopSync")
         ctx.stopService(Intent(ctx, SyncService::class.java))
     }
 
     fun onServiceStarted(s: SyncService) {
         service = s
         _running.value = true
+        Log.i("AppState", "service started")
     }
 
     fun onServiceStopped() {
@@ -79,16 +88,19 @@ object AppState {
         _serverName.value = null
         _connectedIp.value = null
         _status.value = "Stopped"
+        Log.i("AppState", "service stopped")
     }
 
     fun onConnecting() {
         _connected.value = false
         _status.value = "Connecting..."
+        Log.i("AppState", "connecting")
     }
 
     fun onSearching() {
         _connected.value = false
         _status.value = "Searching for desktops..."
+        Log.i("AppState", "searching")
     }
 
     fun onConnected(name: String, host: String) {
@@ -97,17 +109,20 @@ object AppState {
         _connectedIp.value = host
         _status.value = "Connected to $name"
         _lastError.value = null
+        Log.i("AppState", "connected to $name at $host")
     }
 
     fun onDisconnected(reason: String?) {
         _connected.value = false
         _serverName.value = null
         _status.value = if (reason.isNullOrBlank()) "Disconnected" else "Disconnected: $reason"
+        Log.i("AppState", "disconnected: ${reason ?: "unknown"}")
     }
 
     fun onReconnecting(attempt: Int) {
         _connected.value = false
         _status.value = "Reconnecting (attempt $attempt)..."
+        Log.i("AppState", "reconnecting attempt $attempt")
     }
 
     fun onError(msg: String?) {
@@ -115,10 +130,23 @@ object AppState {
         if (msg != null && !_connected.value) {
             _status.value = "Error: $msg"
         }
+        if (msg != null) Log.e("AppState", "error: $msg")
     }
 
     fun onReceived(ctx: Context, text: String, from: String) {
         val entry = HistoryEntry(text = text, from = from.ifBlank { "remote" }, ts = System.currentTimeMillis(), incoming = true)
+        _history.value = listOf(entry) + _history.value
+        HistoryStore.append(ctx, entry)
+    }
+
+    fun onReceivedImage(ctx: Context, mime: String, size: Int, from: String) {
+        val entry = HistoryEntry(
+            text = "[image: $mime, ${size} bytes]",
+            from = from.ifBlank { "remote" },
+            ts = System.currentTimeMillis(),
+            incoming = true,
+            isImage = true,
+        )
         _history.value = listOf(entry) + _history.value
         HistoryStore.append(ctx, entry)
     }

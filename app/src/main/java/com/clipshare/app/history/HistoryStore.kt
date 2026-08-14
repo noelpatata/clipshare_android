@@ -9,6 +9,7 @@ data class HistoryEntry(
     val from: String,
     val ts: Long,
     val incoming: Boolean,
+    val isImage: Boolean = false,
 )
 
 /** Persists recent clipboard history in SharedPreferences (last 50 entries). */
@@ -31,6 +32,7 @@ object HistoryStore {
                             from = o.optString("from"),
                             ts = o.optLong("ts"),
                             incoming = o.optBoolean("incoming"),
+                            isImage = o.optBoolean("isImage", false),
                         )
                     )
                 }
@@ -50,6 +52,7 @@ object HistoryStore {
                     .put("from", e.from)
                     .put("ts", e.ts)
                     .put("incoming", e.incoming)
+                    .put("isImage", e.isImage)
             )
         }
         ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)

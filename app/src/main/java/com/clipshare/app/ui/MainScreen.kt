@@ -209,7 +209,7 @@ private fun DeviceRow(device: DiscoveredDevice, onConnect: (DiscoveredDevice) ->
             Column(Modifier.weight(1f)) {
                 Text(device.name, style = MaterialTheme.typography.titleSmall)
                 Text(
-                    "${device.host}:${device.port}  (${device.source})",
+                    "${device.host}:${device.port}  (${device.source}${if (device.tls) " · TLS" else ""})",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -236,7 +236,9 @@ private fun HistoryRow(entry: HistoryEntry) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    if (entry.incoming) "RECEIVED from ${entry.from}" else "SENT",
+                    if (entry.incoming)
+                        (if (entry.isImage) "IMAGE RECEIVED from ${entry.from}" else "RECEIVED from ${entry.from}")
+                    else "SENT",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold,

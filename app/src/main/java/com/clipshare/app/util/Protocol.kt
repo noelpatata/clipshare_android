@@ -1,5 +1,6 @@
 package com.clipshare.app.util
 
+import android.util.Base64
 import org.json.JSONObject
 
 /** Wire protocol matching the Go daemon (JSON over WebSocket). */
@@ -9,6 +10,9 @@ object Protocol {
     const val MSG_PING = "ping"
     const val MSG_PONG = "pong"
     const val MSG_ERROR = "error"
+
+    const val CONTENT_TEXT = "text"
+    const val CONTENT_IMAGE = "image"
 
     fun hello(name: String, platform: String, version: String): String = JSONObject()
         .put("type", MSG_HELLO)
@@ -21,7 +25,18 @@ object Protocol {
     fun clipboard(text: String, from: String): String = JSONObject()
         .put("type", MSG_CLIPBOARD)
         .put("data", JSONObject()
+            .put("type", CONTENT_TEXT)
             .put("text", text)
+            .put("ts", System.currentTimeMillis())
+            .put("from", from))
+        .toString()
+
+    fun clipboardImage(bytes: ByteArray, mime: String, from: String): String = JSONObject()
+        .put("type", MSG_CLIPBOARD)
+        .put("data", JSONObject()
+            .put("type", CONTENT_IMAGE)
+            .put("data", Base64.encodeToString(bytes, Base64.DEFAULT))
+            .put("mime", mime)
             .put("ts", System.currentTimeMillis())
             .put("from", from))
         .toString()
@@ -29,7 +44,16 @@ object Protocol {
     fun ping(): String = JSONObject().put("type", MSG_PING).toString()
     fun pong(): String = JSONObject().put("type", MSG_PONG).toString()
 
-    data class Clipboard(val text: String, val from: String)
+    data class Clipboard(
+        val text: String?,
+        val image: ByteArray?,
+        val mime: String?,
+        val from: String,
+    ) {
+        val isEmpty: Boolean
+            get() = text.isNullOrBlank() && (image == null || image.isEmpty())
+    }
+
     data class Error(val code: String, val msg: String)
 }
 
@@ -38,7 +62,27 @@ fun parseClipboard(json: String): Protocol.Clipboard? {
         val obj = JSONObject(json)
         if (obj.optString("type") != Protocol.MSG_CLIPBOARD) return null
         val data = obj.optJSONObject("data") ?: return null
-        Protocol.Clipboard(data.optString("text"), data.optString("from"))
+        val from = data.optString("from")
+        if (data.optString("type") == Protocol.CONTENT_IMAGE) {
+            val b64 = data.optString("data")
+            if (b64.isBlank()) return null
+            val bytes = try {
+                Base64.decode(b64, Base64.DEFAULT)
+            } catch (_: Exception) {
+                null
+            } ?: return null
+            if (bytes.isEmpty()) return null
+            Protocol.Clipboard(
+                text = null,
+                image = bytes,
+                mime = data.optString("mime").ifBlank { "image/png" },
+                from = from,
+            )
+        } else {
+            val text = data.optString("text")
+            if (text.isBlank()) return null
+            Protocol.Clipboard(text = text, image = null, mime = null, from = from)
+        }
     } catch (_: Exception) {
         null
     }

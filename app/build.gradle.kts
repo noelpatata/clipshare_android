@@ -3,6 +3,11 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val releaseVersionCode: Int = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 1
+val releaseVersionName: String = (project.findProperty("versionName") as String?) ?: "0.1.0"
+
+val releaseKeystorePath: String? = System.getenv("RELEASE_KEYSTORE_PATH")
+
 android {
     namespace = "com.clipshare.app"
     compileSdk = 36
@@ -11,13 +16,21 @@ android {
         applicationId = "com.clipshare.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = releaseVersionCode
+        versionName = releaseVersionName
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (releaseKeystorePath != null) {
+                signingConfig = signingConfigs.create("release") {
+                    storeFile = file(releaseKeystorePath)
+                    storePassword = System.getenv("KEYSTORE_PASSWORD")
+                    keyAlias = System.getenv("KEY_ALIAS")
+                    keyPassword = System.getenv("KEY_PASSWORD")
+                }
+            }
         }
     }
 

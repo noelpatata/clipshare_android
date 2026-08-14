@@ -26,7 +26,7 @@ private const val BEACON_PORT = 40404
  */
 class DiscoveryManager(
     private val context: Context,
-    private val onDeviceFound: (name: String, host: String, port: Int, source: String) -> Unit,
+    private val onDeviceFound: (name: String, host: String, port: Int, tls: Boolean, source: String) -> Unit,
 ) {
 
     private val nsdManager = context.getSystemService(Context.NSD_SERVICE) as NsdManager
@@ -73,8 +73,10 @@ class DiscoveryManager(
                             val host = info.host?.hostAddress ?: return
                             val port = info.port.takeIf { it != 0 } ?: 40403
                             val name = info.serviceName.ifBlank { host }
-                            add(name, host, port, "mdns")
-                            onDeviceFound(name, host, port, "mdns")
+                            val tls = (info.attributes?.get("tls")
+                                ?.let { String(it, Charsets.UTF_8) } == "true")
+                            add(name, host, port, tls, "mdns")
+                            onDeviceFound(name, host, port, tls, "mdns")
                         }
                     }
                 )
@@ -110,22 +112,23 @@ class DiscoveryManager(
                 val obj = JSONObject(json)
                 val name = obj.optString("name").ifBlank { "desktop" }
                 val port = obj.optInt("port", 40403)
+                val tls = obj.optBoolean("tls", false)
                 val host = packet.address.hostAddress ?: continue
-                add(name, host, port, "beacon")
-                onDeviceFound(name, host, port, "beacon")
+                add(name, host, port, tls, "beacon")
+                onDeviceFound(name, host, port, tls, "beacon")
             } catch (_: Exception) {
                 if (!running) return
             }
         }
     }
 
-    private fun add(name: String, host: String, port: Int, source: String) {
+    private fun add(name: String, host: String, port: Int, tls: Boolean, source: String) {
         if (host.isBlank()) return
         synchronized(this) {
             val key = "$host:$port"
             val old = devices[key]
-            if (old != null && old.name == name && old.source == source) return
-            devices[key] = DiscoveredDevice(name, host, port, source)
+            if (old != null && old.name == name && old.source == source && old.tls == tls) return
+            devices[key] = DiscoveredDevice(name, host, port, source, tls)
             AppState.setDiscovered(devices.values.sortedBy { it.name })
         }
     }

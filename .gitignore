@@ -33,3 +33,4 @@ Thumbs.db
 *.jks
 *.keystore
 keystore.properties
+keystore.b64

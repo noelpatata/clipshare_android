@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
@@ -23,8 +24,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import com.clipshare.app.clipboard.ClipboardSync
+import com.clipshare.app.logs.Log
 import com.clipshare.app.settings.Prefs
 import com.clipshare.app.state.AppState
+import com.clipshare.app.ui.LogsScreen
 import com.clipshare.app.ui.MainScreen
 import com.clipshare.app.ui.SettingsScreen
 import com.clipshare.app.ui.theme.ClipShareTheme
@@ -37,6 +40,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Log.init(this)
+        Log.i("MainActivity", "onCreate")
         AppState.loadHistory(this)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
@@ -57,13 +62,32 @@ class MainActivity : ComponentActivity() {
     private fun ClipShareApp() {
         val context = LocalContext.current
         var screen by remember { mutableStateOf("main") }
+
+        BackHandler(enabled = screen != "main") {
+            screen = when (screen) {
+                "logs" -> "settings"
+                else -> "main"
+            }
+        }
+
+        val title = when (screen) {
+            "settings" -> "Settings"
+            "logs" -> "Logs"
+            else -> ""
+        }
+
         Scaffold(
             topBar = {
-                if (screen == "settings") {
+                if (screen != "main") {
                     TopAppBar(
-                        title = { Text("Settings") },
+                        title = { Text(title) },
                         navigationIcon = {
-                            IconButton(onClick = { screen = "main" }) {
+                            IconButton(onClick = {
+                                screen = when (screen) {
+                                    "logs" -> "settings"
+                                    else -> "main"
+                                }
+                            }) {
                                 Text("\u2190", style = androidx.compose.material3.MaterialTheme.typography.titleLarge)
                             }
                         },
@@ -72,14 +96,18 @@ class MainActivity : ComponentActivity() {
             }
         ) { padding ->
             Box(Modifier.padding(padding)) {
-                if (screen == "settings") {
-                    SettingsScreen(context) { screen = "main" }
-                } else {
-                    MainScreen(
+                when (screen) {
+                    "settings" -> SettingsScreen(
+                        context = context,
+                        onBack = { screen = "main" },
+                        onOpenLogs = { screen = "logs" },
+                    )
+                    "logs" -> LogsScreen(context)
+                    else -> MainScreen(
                         onPushText = { text -> AppState.service?.send(text) },
                         onConnectTo = { device ->
                             val svc = AppState.service
-                            if (svc != null) svc.switchTo(device.host, device.port) else {
+                            if (svc != null) svc.switchTo(device.host, device.port, device.tls) else {
                                 Prefs.setServerHost(context, device.host)
                                 Prefs.setServerPort(context, device.port)
                                 AppState.startSync(context)

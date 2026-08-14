@@ -5,12 +5,16 @@ ClipShare is an Android client for syncing the clipboard with a desktop daemon o
 ## Features
 
 - **Two-way clipboard sync** — copy on one device, paste on the other
+- **Images** — images copied on the desktop arrive as clipboard images on the phone (paste in WhatsApp, Google Docs, Gmail, ...)
 - **Zero-config setup** — discovers the desktop daemon automatically on your LAN
-- **Auto-discovery** — mDNS (`_clipshare._tcp`) and UDP beacon announcements (port `40404`)
+- **Auto-discovery** — mDNS (`_clipshare._tcp`) and UDP beacon announcements (port `40404`); the announced `tls` flag switches the phone to `wss` automatically
 - **Foreground service** — keeps the connection alive and writes incoming clipboard content in the background
 - **Quick Settings tile** — toggle sync from the notification shade
 - **Manual connect** — fall back to entering a host and port by hand
 - **Clipboard history** — recent items are stored locally and shown in the app
+- **Mutual TLS** — import the `.p12` the desktop exports (`clipshare cert export`) and sync over `wss` with client certificates
+- **Whitelist mode** — mirrors the daemon's `connection.mode = "whitelist"`: no scanning, only the listed IPs, and the server identity is verified against the whitelist entry
+- **Background capture** — an accessibility service (optional, opt-in) lets copies made in *other apps* sync while the app is in the background (Android 10+ blocks plain background clipboard reads)
 
 ## Requirements
 
@@ -36,10 +40,11 @@ Install the APK on your device and open the app. On first launch it will ask for
 
 ## Protocol
 
-The app talks to the daemon via WebSocket at `ws://<host>:40403/ws` (the port is discoverable from mDNS/beacons). Messages are JSON objects with a `type` and `data` field:
+The app talks to the daemon via WebSocket at `ws://<host>:40403/ws` (the port is discoverable from mDNS/beacons). When mutual TLS is enabled the URL becomes `wss://` and a client certificate is presented. Messages are JSON objects with a `type` and `data` field:
 
 - `hello` — client announces itself on connect (`name`, `platform`, `version`)
-- `clipboard` — a clipboard text payload with `text`, `ts`, and `from`
+- `clipboard` — a text payload with `text`, `ts`, and `from`, or an image payload with `data` (base64 PNG/JPEG), `mime`, `ts`, and `from`
+- `file` — a file share with `name`, `data` (base64), `mime`, `size`, `ts`, and `from`
 - `ping` / `pong` — keepalive
 - `error` — server-side error (`code`, `msg`)
 
