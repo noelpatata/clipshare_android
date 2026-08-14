@@ -4,16 +4,23 @@ plugins {
 }
 
 val releaseVersionCode: Int = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 1
-val releaseVersionName: String = (project.findProperty("versionName") as String?) ?: "0.1.0"
+
+fun readAppVersion(): String {
+    val constantsFile = file("src/main/java/win/downops/clipshare/util/Constants.kt")
+    val match = Regex("""const val VERSION = "([^"]+)"""").find(constantsFile.readText())
+    return match?.groupValues?.get(1) ?: "0.1.0"
+}
+
+val releaseVersionName: String = (project.findProperty("versionName") as String?) ?: readAppVersion()
 
 val releaseKeystorePath: String? = System.getenv("RELEASE_KEYSTORE_PATH")
 
 android {
-    namespace = "com.clipshare.app"
+    namespace = "win.downops.clipshare"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.clipshare.app"
+        applicationId = "win.downops.clipshare"
         minSdk = 26
         targetSdk = 36
         versionCode = releaseVersionCode
@@ -41,6 +48,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

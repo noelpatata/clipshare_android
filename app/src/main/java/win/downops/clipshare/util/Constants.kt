@@ -1,0 +1,98 @@
+package win.downops.clipshare.util
+
+/**
+ * Application-wide constants. Values that affect behavior and may need to
+ * match the desktop daemon (ports, service type, protocol strings) live here.
+ * File-local constants are kept in their respective files.
+ */
+object Constants {
+    object Discovery {
+        const val SERVICE_TYPE = "_clipshare._tcp"
+        const val DEFAULT_SERVER_PORT = 40403
+        const val DEFAULT_BEACON_PORT = 40404
+        const val DATAGRAM_BIND_ADDR = "0.0.0.0"
+    }
+
+    object Protocol {
+        object Msg {
+            const val HELLO = "hello"
+            const val CLIPBOARD = "clipboard"
+            const val PING = "ping"
+            const val PONG = "pong"
+            const val ERROR = "error"
+        }
+
+        object Content {
+            const val TEXT = "text"
+            const val IMAGE = "image"
+        }
+
+        object Scheme {
+            const val WS = "ws"
+            const val WSS = "wss"
+        }
+
+        const val WS_PATH = "/ws"
+        const val PLATFORM_ANDROID = "android"
+        const val PLATFORM_DESKTOP = "desktop"
+    }
+
+    object WebSocket {
+        const val CONNECT_TIMEOUT_MS = 10_000L
+        const val OPEN_TIMEOUT_MS = 15_000L
+        const val PING_INTERVAL_MS = 30_000L
+        const val BACKOFF_INITIAL_MS = 1_000L
+        const val BACKOFF_MAX_MS = 10_000L
+    }
+
+    object Whitelist {
+        const val RETRY_DELAY_MS = 1_500L
+    }
+
+    object Clipboard {
+        const val SYNC_POLL_MS = 700L
+    }
+
+    object Mime {
+        const val IMAGE_PNG = "image/png"
+        const val IMAGE_JPEG = "image/jpeg"
+        const val IMAGE_JPG = "image/jpg"
+        const val GENERIC = "application/octet-stream"
+    }
+
+    object Image {
+        const val DEFAULT_MAX_PAYLOAD_KB = 10240
+        const val MIN_MAX_PAYLOAD_KB = 8
+        const val MAX_MAX_PAYLOAD_KB = 2048
+        const val MAX_DIMENSION = 1280
+        const val MIN_DIMENSION = 320
+        const val COMPRESSION_ATTEMPTS = 5
+        const val JPEG_QUALITY_START = 90
+        const val JPEG_QUALITY_STEP = 10
+        const val JPEG_QUALITY_MIN = 30
+        const val BASE64_OVERHEAD_FACTOR = 0.75
+        const val DECODE_MAX_DIMENSION = 2048
+    }
+
+    object History {
+        const val MAX_ENTRIES = 50
+    }
+
+    object Log {
+        const val MAX_ENTRIES = 500
+        const val MAX_MESSAGE_LENGTH = 2000
+    }
+
+    object Notification {
+        const val CHANNEL_ID = "clipshare_sync"
+        const val ID = 1
+    }
+
+    object Pkcs12 {
+        const val PASSWORD = "clipshare"
+    }
+
+    object App {
+        const val VERSION = "1.0.0"
+    }
+}
