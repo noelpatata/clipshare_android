@@ -213,7 +213,6 @@ class SyncService : Service() {
             onDisconnected = disc@{ reason ->
                 synchronized(lock) {
                     if (ws !== socket) return@disc
-                    ws = null
                 }
                 Log.i("SyncService", "disconnected: ${reason ?: "unknown"}")
                 AppState.onDisconnected(reason)

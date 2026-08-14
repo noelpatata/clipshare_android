@@ -54,6 +54,9 @@ class WsClient(
 
     @Volatile
     private var ws: WebSocket? = null
+    
+    @Volatile
+    private var pending: WebSocket? = null
 
     @Volatile
     private var running = false
@@ -79,6 +82,8 @@ class WsClient(
             s.close(1000, "bye")
         }
         ws = null
+        pending?.cancel()
+        pending = null
     }
 
     /** Send clipboard text to the daemon. Returns false when not connected. */
@@ -137,6 +142,7 @@ class WsClient(
         val lock = Object()
         val listener = object : WebSocketListener() {
             override fun onOpen(socket: WebSocket, response: Response) {
+                if (pending === socket) pending = null
                 ws = socket
                 socket.send(hello)
                 Log.i("WsClient", "onOpen")
@@ -171,6 +177,7 @@ class WsClient(
 
             override fun onClosing(socket: WebSocket, code: Int, reason: String) {
                 Log.i("WsClient", "onClosing $code $reason")
+                if (pending === socket) pending = null
                 socket.close(code, reason)
                 synchronized(lock) {
                     ok[0] = false
@@ -180,6 +187,7 @@ class WsClient(
 
             override fun onClosed(socket: WebSocket, code: Int, reason: String) {
                 Log.i("WsClient", "onClosed $code $reason")
+                if (pending === socket) pending = null
                 ws = null
                 if (running) onDisconnected(null)
                 synchronized(lock) {
@@ -191,6 +199,7 @@ class WsClient(
             override fun onFailure(socket: WebSocket, t: Throwable, response: Response?) {
                 val reason = t.message ?: t.javaClass.simpleName
                 Log.e("WsClient", "onFailure: $reason", t)
+                if (pending === socket) pending = null
                 ws = null
                 if (running) onDisconnected(reason)
                 synchronized(lock) {
@@ -199,7 +208,8 @@ class WsClient(
                 }
             }
         }
-        client.newWebSocket(request, listener)
+        val socket = client.newWebSocket(request, listener)
+        pending = socket
         // Wait for the open callback so the backoff/attempt counter tracks failures.
         synchronized(lock) {
             if (!ok[0]) {
@@ -209,7 +219,15 @@ class WsClient(
                 }
             }
         }
-        if (!ok[0]) return false
+        if (!ok[0]) {
+            // The handshake may still be in flight (e.g. slow TLS). Cancel it
+            // so it cannot complete later and linger as a second connection.
+            if (pending === socket) {
+                socket.cancel()
+                pending = null
+            }
+            return false
+        }
         // Connected: block here until this socket actually closes, then let the
         // caller decide whether to reconnect. Without this we'd open a second
         // connection immediately while the first is still alive.
