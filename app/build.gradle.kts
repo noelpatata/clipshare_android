@@ -67,4 +67,12 @@ dependencies {
 
     implementation("com.squareup.okhttp3:okhttp:5.4.0")
     implementation("org.json:json:20240303")
+
+    val ktor = "2.3.12"
+    implementation("io.ktor:ktor-server-core:$ktor")
+    implementation("io.ktor:ktor-server-cio:$ktor")
+    implementation("io.ktor:ktor-server-websockets:$ktor")
+
+    implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
+    implementation("org.bouncycastle:bcpkix-jdk18on:1.78.1")
 }

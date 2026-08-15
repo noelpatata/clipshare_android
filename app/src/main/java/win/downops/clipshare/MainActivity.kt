@@ -43,6 +43,7 @@ class MainActivity : ComponentActivity() {
         Log.init(this)
         Log.i("MainActivity", "onCreate")
         AppState.loadHistory(this)
+        AppState.setAppMode(Prefs.appMode(this))
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
             != PackageManager.PERMISSION_GRANTED

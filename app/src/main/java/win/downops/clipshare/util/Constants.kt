@@ -11,6 +11,8 @@ object Constants {
         const val DEFAULT_SERVER_PORT = 40403
         const val DEFAULT_BEACON_PORT = 40404
         const val DATAGRAM_BIND_ADDR = "0.0.0.0"
+        const val BEACON_BROADCAST_ADDR = "255.255.255.255"
+        const val BEACON_INTERVAL_MS = 1_000L
     }
 
     object Protocol {

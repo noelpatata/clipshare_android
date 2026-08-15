@@ -40,6 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import win.downops.clipshare.history.HistoryEntry
+import win.downops.clipshare.settings.Prefs
 import win.downops.clipshare.state.AppState
 import win.downops.clipshare.state.DiscoveredDevice
 import java.text.SimpleDateFormat
@@ -54,14 +55,17 @@ fun MainScreen(
     onOpenSettings: () -> Unit,
 ) {
     val running by AppState.running.collectAsState()
+    val appMode by AppState.appMode.collectAsState()
     val connected by AppState.connected.collectAsState()
     val status by AppState.status.collectAsState()
     val serverName by AppState.serverName.collectAsState()
+    val serverClientCount by AppState.serverClientCount.collectAsState()
     val devices by AppState.discovered.collectAsState()
     val history by AppState.history.collectAsState()
     val error by AppState.lastError.collectAsState()
 
     var text by remember { mutableStateOf("") }
+    val isServer = appMode == Prefs.APP_MODE_SERVER
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -69,7 +73,7 @@ fun MainScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            StatusCard(running, connected, status, serverName, onToggle)
+            StatusCard(running, connected, status, serverName, serverClientCount, isServer, onToggle)
         }
         item {
             if (error != null) {
@@ -83,24 +87,26 @@ fun MainScreen(
                 }
             }
         }
-        item {
-            Text("Devices", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            if (devices.isEmpty()) {
-                Text(
-                    "No devices found. Make sure the desktop daemon is running and you are on the same network, or add the address in Settings.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            } else {
-                devices.forEach { device ->
-                    DeviceRow(device, onConnectTo)
+        if (!isServer) {
+            item {
+                Text("Devices", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                if (devices.isEmpty()) {
+                    Text(
+                        "No devices found. Make sure a server is running and you are on the same network, or add the address in Settings.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    devices.forEach { device ->
+                        DeviceRow(device, onConnectTo)
+                    }
                 }
             }
         }
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "Send",
+                    if (isServer) "Broadcast" else "Send",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f),
@@ -111,7 +117,7 @@ fun MainScreen(
                 value = text,
                 onValueChange = { text = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Text to push") },
+                label = { Text(if (isServer) "Text to broadcast" else "Text to push") },
                 minLines = 2,
             )
             Spacer(Modifier.height(8.dp))
@@ -120,9 +126,9 @@ fun MainScreen(
                     onPushText(text)
                     text = ""
                 },
-                enabled = text.isNotBlank() && connected,
+                enabled = text.isNotBlank() && (connected || (isServer && running)),
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Send to desktop") }
+            ) { Text(if (isServer) "Broadcast to clients" else "Send to server") }
         }
         item {
             Text("Recent", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -146,6 +152,8 @@ private fun StatusCard(
     connected: Boolean,
     status: String,
     serverName: String?,
+    serverClientCount: Int,
+    isServer: Boolean,
     onToggle: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -155,14 +163,23 @@ private fun StatusCard(
                     Modifier
                         .size(12.dp)
                         .background(
-                            if (connected) Color(0xFF2E7D32) else if (running) Color(0xFFF9A825) else Color(0xFF9E9E9E),
+                            if (connected || (isServer && running)) Color(0xFF2E7D32)
+                            else if (running) Color(0xFFF9A825)
+                            else Color(0xFF9E9E9E),
                             CircleShape
                         )
                 )
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text(status, style = MaterialTheme.typography.titleMedium)
-                    if (serverName != null) {
+                    if (isServer) {
+                        Text(
+                            if (running) "$serverClientCount client${if (serverClientCount == 1) "" else "s"} connected"
+                            else "Not running",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else if (serverName != null) {
                         Text(
                             "Syncing with $serverName",
                             style = MaterialTheme.typography.bodySmall,
@@ -178,7 +195,7 @@ private fun StatusCard(
                 }
                 Switch(checked = running, onCheckedChange = { onToggle() })
             }
-            if (running && !connected) {
+            if (running && !connected && !isServer) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(top = 12.dp),

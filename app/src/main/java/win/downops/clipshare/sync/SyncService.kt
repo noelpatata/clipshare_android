@@ -16,6 +16,8 @@ import androidx.core.content.FileProvider
 import win.downops.clipshare.MainActivity
 import win.downops.clipshare.R
 import win.downops.clipshare.certs.CertStore
+import win.downops.clipshare.certs.ServerCertManager
+import win.downops.clipshare.discover.DiscoveryAdvertiser
 import win.downops.clipshare.discover.DiscoveryManager
 import win.downops.clipshare.logs.Log
 import win.downops.clipshare.settings.Prefs
@@ -23,6 +25,7 @@ import win.downops.clipshare.state.AppState
 import win.downops.clipshare.util.Constants
 import win.downops.clipshare.util.Protocol
 import win.downops.clipshare.ws.WsClient
+import win.downops.clipshare.ws.WsServer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -32,25 +35,27 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 /**
- * Foreground service owning the WebSocket connection to the desktop daemon.
- * Also owns network discovery, so found desktops are auto-connected without
- * any manual server address. Writes received clipboard content (text and
- * images) to the system clipboard (allowed in the background).
+ * Foreground service that runs in either client or server mode.
  *
- * Connection modes (mirror the desktop daemon):
- *  - discover: scan mDNS/UDP, auto-connect to announcing daemons.
- *  - whitelist: no scanning; cycle through the whitelisted IPs and verify the
- *    daemon's hello name against the entry.
+ * Client mode: discovers desktop/Android servers and maintains a WebSocket
+ *             connection to the selected one.
+ * Server mode: listens for inbound WebSocket connections from other ClipShare
+ *             clients and advertises itself via mDNS/UDP beacons.
  */
 class SyncService : Service() {
 
     private var ws: WsClient? = null
     private var discovery: DiscoveryManager? = null
+    private var wsServer: WsServer? = null
+    private var advertiser: DiscoveryAdvertiser? = null
     private val lock = Object()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Volatile
     private var running = false
+
+    @Volatile
+    private var appMode = Prefs.APP_MODE_CLIENT
 
     /** The daemon we are currently (or last) targeting. */
     @Volatile
@@ -78,14 +83,96 @@ class SyncService : Service() {
         startForeground(Constants.Notification.ID, buildNotification("Starting..."))
         Log.i("SyncService", "onCreate")
         AppState.onServiceStarted(this)
-        startDiscovery()
+        appMode = Prefs.appMode(this)
+        AppState.setAppMode(appMode)
+
+        if (appMode == Prefs.APP_MODE_SERVER) {
+            startServerMode()
+        } else {
+            startClientMode()
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.i("SyncService", "onStartCommand")
-        val shouldConnect = synchronized(lock) { ws == null }
-        if (shouldConnect) connect()
+        if (appMode == Prefs.APP_MODE_CLIENT) {
+            val shouldConnect = synchronized(lock) { ws == null }
+            if (shouldConnect) connect()
+        }
         return START_STICKY
+    }
+
+    // ------------------------------------------------------------------
+    // Server mode
+    // ------------------------------------------------------------------
+
+    private fun startServerMode() {
+        val port = Prefs.serverPort(this)
+        val tls = Prefs.serverTlsEnabled(this)
+
+        if (tls && !ServerCertManager.hasCerts(this)) {
+            Log.i("SyncService", "generating server certificates")
+            ServerCertManager.generate(this, Prefs.deviceName(this))
+        }
+
+        val keyStore = if (tls) ServerCertManager.loadKeyStore(this) else null
+        if (tls && keyStore == null) {
+            val msg = "Server TLS enabled but certificate failed to load"
+            Log.e("SyncService", msg)
+            AppState.onError(msg)
+            updateNotification(msg)
+            return
+        }
+
+        val server = WsServer(
+            port = port,
+            deviceName = Prefs.deviceName(this),
+            keyStore = keyStore,
+            keyStorePassword = if (tls) Constants.Pkcs12.PASSWORD.toCharArray() else null,
+            onReceived = { from, clip ->
+                receive(clip)
+                broadcastReceived(clip, skipFrom = from)
+            },
+            onClientChange = { count ->
+                AppState.onServerClientCountChanged(count)
+                updateNotification(
+                    if (count == 0) "Server running on :$port (no clients)"
+                    else "Server running on :$port ($count client${if (count == 1) "" else "s"})"
+                )
+            },
+        )
+        wsServer = server
+        server.start()
+        AppState.onServerStarted(port)
+        updateNotification("Server running on :$port")
+
+        val beaconPort = Prefs.discoveryBeaconPort(this)
+        val adv = DiscoveryAdvertiser(this, beaconPort)
+        advertiser = adv
+        adv.start(Prefs.deviceName(this), port, tls)
+    }
+
+    private fun stopServerMode() {
+        wsServer?.stop()
+        wsServer = null
+        advertiser?.stop()
+        advertiser = null
+    }
+
+    /** Broadcast a just-received clipboard item to every other connected client. */
+    private fun broadcastReceived(clip: Protocol.Clipboard, skipFrom: String) {
+        val server = wsServer ?: return
+        val from = Prefs.deviceName(this)
+        clip.text?.let { server.broadcast(it, from, skipFrom) }
+        clip.image?.let { server.broadcastImage(it, clip.mime ?: Constants.Mime.IMAGE_PNG, from, skipFrom) }
+    }
+
+    // ------------------------------------------------------------------
+    // Client mode
+    // ------------------------------------------------------------------
+
+    private fun startClientMode() {
+        startDiscovery()
     }
 
     private fun startDiscovery() {
@@ -128,7 +215,7 @@ class SyncService : Service() {
         }
         val host = currentHost ?: Prefs.serverHost(this).takeIf { it.isNotBlank() } ?: run {
             AppState.onSearching()
-            updateNotification("Searching for desktops...")
+            updateNotification("Searching for servers...")
             Log.i("SyncService", "no host configured, searching via discovery")
             return
         }
@@ -178,16 +265,16 @@ class SyncService : Service() {
         Log.i("SyncService", "opening $url")
 
         val tlsConfig = if (tls) {
-            if (CertStore.hasCert(this)) {
-                CertStore.clientTls(this)
-            } else {
-                val msg = "No client certificate imported (Settings -> TLS)"
+            val clientTls = CertStore.clientTlsWithCert(this) ?: CertStore.trustOnlyTls(this)
+            if (clientTls == null) {
+                val msg = "TLS on, but no client certificate or trusted CA imported"
                 Log.e("SyncService", msg)
                 AppState.onError(msg)
-                updateNotification("TLS on, but no certificate imported")
+                updateNotification("TLS on, but no certificate or CA imported")
                 onConnectFailed()
                 return null
             }
+            clientTls
         } else null
 
         lateinit var socket: WsClient
@@ -292,10 +379,18 @@ class SyncService : Service() {
         }
     }
 
-    /** Push local clipboard text to the daemon. Called from the app UI or the
+    // ------------------------------------------------------------------
+    // Shared send / receive
+    // ------------------------------------------------------------------
+
+    /** Push local clipboard text to peers. Called from the app UI or the
      * accessibility service while connected. */
     fun send(text: String): Boolean {
-        val ok = ws?.send(text, Prefs.deviceName(this)) == true
+        val ok = if (appMode == Prefs.APP_MODE_SERVER) {
+            wsServer?.broadcast(text, Prefs.deviceName(this)) == true
+        } else {
+            ws?.send(text, Prefs.deviceName(this)) == true
+        }
         if (ok) {
             AppState.onSent(this, text)
             Log.i("SyncService", "sent ${text.length} chars")
@@ -305,14 +400,18 @@ class SyncService : Service() {
         return ok
     }
 
-    /** Push a local image to the daemon. */
+    /** Push a local image to peers. */
     fun sendImage(bytes: ByteArray, mime: String): Boolean {
-        val ws = synchronized(lock) { ws }
-        if (ws == null) {
-            Log.w("SyncService", "sendImage: no active socket")
-            return false
+        val ok = if (appMode == Prefs.APP_MODE_SERVER) {
+            wsServer?.broadcastImage(bytes, mime, Prefs.deviceName(this)) == true
+        } else {
+            val ws = synchronized(lock) { ws }
+            if (ws == null) {
+                Log.w("SyncService", "sendImage: no active socket")
+                return false
+            }
+            ws.sendImage(bytes, mime, Prefs.deviceName(this))
         }
-        val ok = ws.sendImage(bytes, mime, Prefs.deviceName(this))
         if (ok) {
             AppState.onSent(this, "[image: $mime, ${bytes.size} bytes]")
             Log.i("SyncService", "sent ${bytes.size} byte $mime image")
@@ -368,13 +467,17 @@ class SyncService : Service() {
         Log.i("SyncService", "wrote image to clipboard: ${file.name}")
     }
 
+    // ------------------------------------------------------------------
+    // Notification
+    // ------------------------------------------------------------------
+
     private fun createChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val nm = getSystemService(NotificationManager::class.java)
             val channel = NotificationChannel(
                 Constants.Notification.CHANNEL_ID, "ClipShare sync", NotificationManager.IMPORTANCE_LOW
             )
-            channel.description = "Clipboard sync with desktop"
+            channel.description = "Clipboard sync and server"
             nm.createNotificationChannel(channel)
         }
     }
@@ -404,6 +507,7 @@ class SyncService : Service() {
         stopWs()
         discovery?.stop()
         discovery = null
+        stopServerMode()
         AppState.onServiceStopped()
         Log.i("SyncService", "onDestroy")
         super.onDestroy()

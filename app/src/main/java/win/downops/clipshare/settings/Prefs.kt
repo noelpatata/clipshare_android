@@ -17,11 +17,16 @@ object Prefs {
     const val MODE_DISCOVER = "discover"
     const val MODE_WHITELIST = "whitelist"
 
+    const val APP_MODE_CLIENT = "client"
+    const val APP_MODE_SERVER = "server"
+
     private const val FILE = "clipshare_prefs"
 
     private const val KEY_DEVICE_NAME = "device_name"
+    private const val KEY_APP_MODE = "app_mode"
     private const val KEY_SERVER_HOST = "server_host"
     private const val KEY_SERVER_PORT = "server_port"
+    private const val KEY_SERVER_TLS_ENABLED = "server_tls_enabled"
     private const val KEY_TOKEN = "token"
     private const val KEY_AUTO_CONNECT = "auto_connect"
     private const val KEY_DISCOVERY = "discovery_enabled"
@@ -30,6 +35,8 @@ object Prefs {
     private const val KEY_CONNECTION_MODE = "connection_mode"
     private const val KEY_WHITELIST = "whitelist"
     private const val KEY_MAX_IMAGE_PAYLOAD_KB = "max_image_payload_kb"
+    private const val KEY_CLIENT_CERTS = "client_certs"
+    private const val KEY_TRUSTED_CAS = "trusted_cas"
 
     private fun prefs(ctx: Context) =
         ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -37,10 +44,15 @@ object Prefs {
     fun deviceName(ctx: Context): String =
         prefs(ctx).getString(KEY_DEVICE_NAME, Build.MODEL) ?: Build.MODEL
 
+    fun appMode(ctx: Context): String =
+        prefs(ctx).getString(KEY_APP_MODE, APP_MODE_CLIENT) ?: APP_MODE_CLIENT
+
     fun serverHost(ctx: Context): String =
         prefs(ctx).getString(KEY_SERVER_HOST, "") ?: ""
 
     fun serverPort(ctx: Context): Int = prefs(ctx).getInt(KEY_SERVER_PORT, Constants.Discovery.DEFAULT_SERVER_PORT)
+
+    fun serverTlsEnabled(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_SERVER_TLS_ENABLED, false)
 
     fun token(ctx: Context): String = prefs(ctx).getString(KEY_TOKEN, "") ?: ""
 
@@ -58,6 +70,12 @@ object Prefs {
 
     fun maxImagePayloadKb(ctx: Context): Int =
         prefs(ctx).getInt(KEY_MAX_IMAGE_PAYLOAD_KB, Constants.Image.DEFAULT_MAX_PAYLOAD_KB)
+
+    fun clientCertsJson(ctx: Context): String =
+        prefs(ctx).getString(KEY_CLIENT_CERTS, "[]") ?: "[]"
+
+    fun trustedCasJson(ctx: Context): String =
+        prefs(ctx).getString(KEY_TRUSTED_CAS, "[]") ?: "[]"
 
     fun whitelist(ctx: Context): List<WhitelistEntry> {
         val raw = prefs(ctx).getString(KEY_WHITELIST, null) ?: return emptyList()
@@ -77,11 +95,17 @@ object Prefs {
     fun setDeviceName(ctx: Context, value: String) =
         prefs(ctx).edit().putString(KEY_DEVICE_NAME, value).apply()
 
+    fun setAppMode(ctx: Context, value: String) =
+        prefs(ctx).edit().putString(KEY_APP_MODE, value).apply()
+
     fun setServerHost(ctx: Context, value: String) =
         prefs(ctx).edit().putString(KEY_SERVER_HOST, value.trim()).apply()
 
     fun setServerPort(ctx: Context, value: Int) =
         prefs(ctx).edit().putInt(KEY_SERVER_PORT, value).apply()
+
+    fun setServerTlsEnabled(ctx: Context, value: Boolean) =
+        prefs(ctx).edit().putBoolean(KEY_SERVER_TLS_ENABLED, value).apply()
 
     fun setToken(ctx: Context, value: String) =
         prefs(ctx).edit().putString(KEY_TOKEN, value.trim()).apply()
@@ -103,6 +127,12 @@ object Prefs {
 
     fun setMaxImagePayloadKb(ctx: Context, value: Int) =
         prefs(ctx).edit().putInt(KEY_MAX_IMAGE_PAYLOAD_KB, value.coerceIn(Constants.Image.MIN_MAX_PAYLOAD_KB, Constants.Image.MAX_MAX_PAYLOAD_KB)).apply()
+
+    fun setClientCertsJson(ctx: Context, value: String) =
+        prefs(ctx).edit().putString(KEY_CLIENT_CERTS, value).apply()
+
+    fun setTrustedCasJson(ctx: Context, value: String) =
+        prefs(ctx).edit().putString(KEY_TRUSTED_CAS, value).apply()
 
     fun setWhitelist(ctx: Context, entries: List<WhitelistEntry>) {
         val arr = JSONArray()

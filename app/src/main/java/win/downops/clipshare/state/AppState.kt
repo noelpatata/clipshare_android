@@ -25,6 +25,9 @@ object AppState {
     private val _running = MutableStateFlow(false)
     val running: StateFlow<Boolean> = _running.asStateFlow()
 
+    private val _appMode = MutableStateFlow(Prefs.APP_MODE_CLIENT)
+    val appMode: StateFlow<String> = _appMode.asStateFlow()
+
     private val _connected = MutableStateFlow(false)
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
 
@@ -36,6 +39,9 @@ object AppState {
 
     private val _connectedIp = MutableStateFlow<String?>(null)
     val connectedIp: StateFlow<String?> = _connectedIp.asStateFlow()
+
+    private val _serverClientCount = MutableStateFlow(0)
+    val serverClientCount: StateFlow<Int> = _serverClientCount.asStateFlow()
 
     private val _history = MutableStateFlow<List<HistoryEntry>>(emptyList())
     val history: StateFlow<List<HistoryEntry>> = _history.asStateFlow()
@@ -71,8 +77,13 @@ object AppState {
         _connected.value = false
         _serverName.value = null
         _connectedIp.value = null
+        _serverClientCount.value = 0
         Log.i("AppState", "stopSync")
         ctx.stopService(Intent(ctx, SyncService::class.java))
+    }
+
+    fun setAppMode(mode: String) {
+        _appMode.value = mode
     }
 
     fun onServiceStarted(s: SyncService) {
@@ -87,6 +98,7 @@ object AppState {
         _connected.value = false
         _serverName.value = null
         _connectedIp.value = null
+        _serverClientCount.value = 0
         _status.value = "Stopped"
         Log.i("AppState", "service stopped")
     }
@@ -99,7 +111,7 @@ object AppState {
 
     fun onSearching() {
         _connected.value = false
-        _status.value = "Searching for desktops..."
+        _status.value = "Searching for servers..."
         Log.i("AppState", "searching")
     }
 
@@ -131,6 +143,17 @@ object AppState {
             _status.value = "Error: $msg"
         }
         if (msg != null) Log.e("AppState", "error: $msg")
+    }
+
+    fun onServerStarted(port: Int) {
+        _connected.value = true
+        _status.value = "Server running on :$port"
+        _lastError.value = null
+        Log.i("AppState", "server started on port $port")
+    }
+
+    fun onServerClientCountChanged(count: Int) {
+        _serverClientCount.value = count
     }
 
     fun onReceived(ctx: Context, text: String, from: String) {
