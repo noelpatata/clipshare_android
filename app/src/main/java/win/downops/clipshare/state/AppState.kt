@@ -188,4 +188,24 @@ object AppState {
     fun setDiscovered(devices: List<DiscoveredDevice>) {
         _discovered.value = devices
     }
+
+    internal fun resetForTesting() {
+        _running.value = false
+        _appMode.value = Prefs.APP_MODE_CLIENT
+        _connected.value = false
+        _status.value = "Stopped"
+        _serverName.value = null
+        _connectedIp.value = null
+        _serverClientCount.value = 0
+        _history.value = emptyList()
+        _lastError.value = null
+        _discovered.value = emptyList()
+        service = null
+        lastRemoteWritten = null
+        lastRemoteWrittenImage = null
+    }
+
+    internal fun setRunningForTesting(running: Boolean) {
+        _running.value = running
+    }
 }

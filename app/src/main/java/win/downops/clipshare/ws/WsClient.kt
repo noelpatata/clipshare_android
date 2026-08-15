@@ -39,7 +39,7 @@ class WsClient(
     private val onError: (msg: String) -> Unit,
 ) {
     private val host: String =
-        url.substringBefore(":").substringAfter("//")
+        url.substringAfter("//").substringBefore(":")
 
     private val client = OkHttpClient.Builder()
         .pingInterval(Constants.WebSocket.PING_INTERVAL_MS, TimeUnit.MILLISECONDS)
