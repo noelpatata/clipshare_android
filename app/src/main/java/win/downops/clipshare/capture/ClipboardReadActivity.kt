@@ -1,12 +1,11 @@
 package win.downops.clipshare.capture
 
 import android.app.Activity
-import android.content.ClipboardManager
-import android.content.Context
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import win.downops.clipshare.clipboard.ClipboardSender
+import win.downops.clipshare.clipboard.ClipboardWriter
 import win.downops.clipshare.logs.Log
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -42,7 +41,7 @@ class ClipboardReadActivity : Activity() {
     private fun readAndFinish() {
         if (!handled.compareAndSet(false, true)) return
         handler.removeCallbacks(timeout)
-        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val cm = ClipboardWriter.manager(this)
         val payload = ClipboardSender.payloadOf(this, cm.primaryClip)
         if (payload != null) {
             Log.i("Capture", "captured ${payload.fingerprint}")

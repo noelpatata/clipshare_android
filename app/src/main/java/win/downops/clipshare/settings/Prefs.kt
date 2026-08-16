@@ -3,8 +3,7 @@ package win.downops.clipshare.settings
 import android.content.Context
 import android.os.Build
 import win.downops.clipshare.util.Constants
-import org.json.JSONArray
-import org.json.JSONObject
+import win.downops.clipshare.util.JsonList
 
 /** One allowed device in whitelist mode. Matching is on name OR ip. */
 data class WhitelistEntry(
@@ -92,16 +91,8 @@ object Prefs {
 
     fun whitelist(ctx: Context): List<WhitelistEntry> {
         val raw = prefs(ctx).getString(KEY_WHITELIST, null) ?: return emptyList()
-        return try {
-            val arr = JSONArray(raw)
-            buildList {
-                for (i in 0 until arr.length()) {
-                    val o = arr.getJSONObject(i)
-                    add(WhitelistEntry(o.optString("name"), o.optString("ip")))
-                }
-            }
-        } catch (_: Exception) {
-            emptyList()
+        return JsonList.parse(raw) {
+            WhitelistEntry(it.optString("name"), it.optString("ip"))
         }
     }
 
@@ -157,10 +148,9 @@ object Prefs {
         prefs(ctx).edit().putString(KEY_TRUSTED_CAS, value).apply()
 
     fun setWhitelist(ctx: Context, entries: List<WhitelistEntry>) {
-        val arr = JSONArray()
-        for (e in entries) {
-            arr.put(JSONObject().put("name", e.name).put("ip", e.ip))
-        }
-        prefs(ctx).edit().putString(KEY_WHITELIST, arr.toString()).apply()
+        prefs(ctx).edit().putString(
+            KEY_WHITELIST,
+            JsonList.build(entries) { obj, e -> obj.put("name", e.name).put("ip", e.ip) },
+        ).apply()
     }
 }

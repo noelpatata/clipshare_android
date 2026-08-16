@@ -2,8 +2,7 @@ package win.downops.clipshare.history
 
 import android.content.Context
 import win.downops.clipshare.settings.Prefs
-import org.json.JSONArray
-import org.json.JSONObject
+import win.downops.clipshare.util.JsonList
 import androidx.core.content.edit
 
 data class HistoryEntry(
@@ -22,43 +21,30 @@ object HistoryStore {
     fun load(ctx: Context): List<HistoryEntry> {
         val raw = ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
             .getString(KEY, null) ?: return emptyList()
-        return try {
-            val arr = JSONArray(raw)
-            buildList {
-                for (i in 0 until arr.length()) {
-                    val o = arr.getJSONObject(i)
-                    add(
-                        HistoryEntry(
-                            text = o.optString("text"),
-                            from = o.optString("from"),
-                            ts = o.optLong("ts"),
-                            incoming = o.optBoolean("incoming"),
-                            isImage = o.optBoolean("isImage", false),
-                        )
-                    )
-                }
-            }
-        } catch (_: Exception) {
-            emptyList()
+        return JsonList.parse(raw) {
+            HistoryEntry(
+                text = it.optString("text"),
+                from = it.optString("from"),
+                ts = it.optLong("ts"),
+                incoming = it.optBoolean("incoming"),
+                isImage = it.optBoolean("isImage", false),
+            )
         }
     }
 
     fun append(ctx: Context, entry: HistoryEntry) {
         val max = Prefs.maxHistoryEntries(ctx)
         val entries = (listOf(entry) + load(ctx)).take(max)
-        val arr = JSONArray()
-        for (e in entries) {
-            arr.put(
-                JSONObject()
-                    .put("text", e.text)
-                    .put("from", e.from)
-                    .put("ts", e.ts)
-                    .put("incoming", e.incoming)
-                    .put("isImage", e.isImage)
-            )
-        }
         ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
-            .edit { putString(KEY, arr.toString()) }
+            .edit {
+                putString(KEY, JsonList.build(entries) { obj, e ->
+                    obj.put("text", e.text)
+                        .put("from", e.from)
+                        .put("ts", e.ts)
+                        .put("incoming", e.incoming)
+                        .put("isImage", e.isImage)
+                })
+            }
     }
 
     fun clear(ctx: Context) {

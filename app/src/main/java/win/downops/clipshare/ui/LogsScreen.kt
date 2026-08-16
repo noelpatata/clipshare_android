@@ -33,6 +33,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import win.downops.clipshare.clipboard.ClipboardWriter
 import win.downops.clipshare.logs.LogStore
 import java.io.File
 
@@ -137,8 +138,7 @@ private fun rememberLogText(entries: List<LogStore.Entry>): AnnotatedString {
 
 private fun copyLogs(context: Context) {
     val text = LogStore.shareText()
-    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-    cm.setPrimaryClip(android.content.ClipData.newPlainText("ClipShare logs", text))
+    ClipboardWriter.writeText(context, "ClipShare logs", text)
     android.widget.Toast.makeText(context, "Logs copied to clipboard", android.widget.Toast.LENGTH_SHORT).show()
 }
 

@@ -287,12 +287,7 @@ class ClientSyncMode(
 
     override fun send(text: String): Boolean {
         val ok = ws?.send(text, Prefs.deviceName(context)) == true
-        if (ok) {
-            AppState.onSent(context, text)
-            Log.i("SyncService", "sent ${text.length} chars")
-        } else {
-            Log.w("SyncService", "send failed (not connected?)")
-        }
+        SyncSend.text(context, text, ok)
         return ok
     }
 
@@ -303,12 +298,7 @@ class ClientSyncMode(
             return false
         }
         val ok = socket.sendImage(bytes, mime, Prefs.deviceName(context))
-        if (ok) {
-            AppState.onSent(context, "[image: $mime, ${bytes.size} bytes]")
-            Log.i("SyncService", "sent ${bytes.size} byte $mime image")
-        } else {
-            Log.w("SyncService", "sendImage failed (not connected?)")
-        }
+        SyncSend.image(context, mime, bytes, ok)
         return ok
     }
 }

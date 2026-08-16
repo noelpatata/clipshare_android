@@ -31,7 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import win.downops.clipshare.clipboard.ClipboardSync
+import win.downops.clipshare.clipboard.ClipboardPusher
 import win.downops.clipshare.logs.Log
 import win.downops.clipshare.settings.Prefs
 import win.downops.clipshare.state.AppState
@@ -177,12 +177,12 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         AppState.appInForeground = true
-        ClipboardSync.start(this)
+        ClipboardPusher.start(this)
     }
 
     override fun onPause() {
         super.onPause()
-        ClipboardSync.stop(this)
+        ClipboardPusher.stop(this)
         AppState.appInForeground = false
     }
 }

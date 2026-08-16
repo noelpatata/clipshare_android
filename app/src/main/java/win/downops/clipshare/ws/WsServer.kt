@@ -152,24 +152,22 @@ class WsServer(
             for (frame in ws.incoming) {
                 if (frame !is Frame.Text) continue
                 val text = frame.readText()
-                when (val msg = ProtocolParser.parse(text)) {
-                    is ProtocolMessage.Hello -> {
-                        name = msg.name
-                        session.name = msg.name
+                ProtocolDispatcher.dispatch(
+                    message = ProtocolParser.parse(text),
+                    onHello = { newName ->
+                        name = newName
+                        session.name = newName
                         onClientChange(sessions.size)
-                        Log.i("WsServer", "client identified as ${msg.name}")
-                    }
-                    is ProtocolMessage.Clipboard -> {
-                        if (!msg.clip.isEmpty) {
-                            Log.i("WsServer", "clipboard from $name")
-                            onReceived(name, msg.clip)
-                        }
-                    }
-                    ProtocolMessage.Ping -> ws.send(Frame.Text(Protocol.pong()))
-                    ProtocolMessage.Pong -> Unit
-                    is ProtocolMessage.Error -> Unit
-                    ProtocolMessage.Unknown -> Log.d("WsServer", "ignored message type")
-                }
+                        Log.i("WsServer", "client identified as $newName")
+                    },
+                    onClipboard = { clip ->
+                        Log.i("WsServer", "clipboard from $name")
+                        onReceived(name, clip)
+                    },
+                    onError = {},
+                    onUnknown = { Log.d("WsServer", "ignored message type") },
+                    sendPong = { scope.launch { ws.send(Frame.Text(Protocol.pong())) } },
+                )
             }
         } catch (e: Exception) {
             Log.w("WsServer", "session error: ${e.message}")

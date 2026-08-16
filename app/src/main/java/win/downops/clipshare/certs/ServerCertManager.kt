@@ -51,14 +51,9 @@ object ServerCertManager {
     fun getCaCertificatePem(context: Context): String? {
         val file = caFile(context)
         if (!file.exists()) return null
-        return try {
-            val cert = file.inputStream().use { java.security.cert.CertificateFactory
-                .getInstance("X.509")
-                .generateCertificate(it) as X509Certificate }
-            cert.toPem()
-        } catch (_: Exception) {
-            null
-        }
+        return runCatching {
+            parseCertificate(file.readText())?.toPem()
+        }.getOrNull()
     }
 
     /**
@@ -196,14 +191,5 @@ val ks = KeyStore.getInstance("PKCS12")
 
         val signer = JcaContentSignerBuilder("SHA256withECDSA").build(issuerKey)
         return JcaX509CertificateConverter().getCertificate(builder.build(signer))
-    }
-
-    private fun X509Certificate.toPem(): String {
-        val encoder = android.util.Base64.encodeToString(encoded, android.util.Base64.DEFAULT)
-        val sb = StringBuilder()
-        sb.appendLine("-----BEGIN CERTIFICATE-----")
-        sb.append(encoder)
-        sb.appendLine("-----END CERTIFICATE-----")
-        return sb.toString()
     }
 }

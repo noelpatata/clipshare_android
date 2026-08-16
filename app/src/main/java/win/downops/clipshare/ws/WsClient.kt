@@ -149,22 +149,20 @@ class WsClient(
             }
 
             override fun onMessage(socket: WebSocket, text: String) {
-                when (val msg = ProtocolParser.parse(text)) {
-                    is ProtocolMessage.Hello -> {
-                        Log.i("WsClient", "hello from ${msg.name}")
-                        onConnected(msg.name, host)
-                    }
-                    is ProtocolMessage.Clipboard -> {
-                        if (!msg.clip.isEmpty) onClipboard(msg.clip)
-                    }
-                    ProtocolMessage.Ping -> socket.send(Protocol.pong())
-                    ProtocolMessage.Pong -> Unit
-                    is ProtocolMessage.Error -> {
-                        Log.e("WsClient", "daemon error: ${msg.error.msg}")
-                        onError(msg.error.msg)
-                    }
-                    ProtocolMessage.Unknown -> Unit
-                }
+                ProtocolDispatcher.dispatch(
+                    message = ProtocolParser.parse(text),
+                    onHello = { name ->
+                        Log.i("WsClient", "hello from $name")
+                        onConnected(name, host)
+                    },
+                    onClipboard = { clip -> onClipboard(clip) },
+                    onError = { error ->
+                        Log.e("WsClient", "daemon error: ${error.msg}")
+                        onError(error.msg)
+                    },
+                    onUnknown = {},
+                    sendPong = { socket.send(Protocol.pong()) },
+                )
             }
 
             override fun onClosing(socket: WebSocket, code: Int, reason: String) {

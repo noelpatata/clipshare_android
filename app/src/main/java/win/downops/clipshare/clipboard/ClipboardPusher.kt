@@ -13,16 +13,18 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * Watches the clipboard while the app is in the foreground and pushes changes
- * to the connected daemon. Android 10+ blocks background clipboard reads, so
- * this is started/stopped with the activity's onResume/onPause.
+ * Foreground *send* path: watches the local clipboard while the app is in the
+ * foreground and pushes changes to the connected daemon. Android 10+ blocks
+ * background clipboard reads, so this is started/stopped with the activity's
+ * onResume/onPause. (The background equivalent is the accessibility service.)
  *
  * Capturing logic (dedup, loop protection, compression, sending) lives in
  * [ClipboardSender] / [ClipboardDedup] and is shared with the background
  * accessibility service, so the same copy is never sent twice even when the app
- * moves between foreground and background.
+ * moves between foreground and background. Writing received content back into
+ * the clipboard is the job of [ClipboardWriter].
  */
-object ClipboardSync {
+object ClipboardPusher {
 
     private var listener: ClipboardManager.OnPrimaryClipChangedListener? = null
     private var scope: CoroutineScope? = null
@@ -34,7 +36,7 @@ object ClipboardSync {
 
     fun start(context: Context) {
         if (scope != null) return
-        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val cm = ClipboardWriter.manager(context)
         val s = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         scope = s
         // Seed with the current clipboard so it is not re-pushed when the app
@@ -43,7 +45,7 @@ object ClipboardSync {
             ClipboardDedup.claim(it.toByteArray(Charsets.UTF_8))
             lastSeenKey = "text:$it"
         }
-        Log.i("ClipboardSync", "started")
+        Log.i("ClipboardPusher", "started")
 
         listener = ClipboardManager.OnPrimaryClipChangedListener {
             s.launch { handleChange(context, cm) }
@@ -59,12 +61,12 @@ object ClipboardSync {
     }
 
     fun stop(context: Context) {
-        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val cm = ClipboardWriter.manager(context)
         listener?.let { cm.removePrimaryClipChangedListener(it) }
         listener = null
         scope?.cancel()
         scope = null
-        Log.i("ClipboardSync", "stopped")
+        Log.i("ClipboardPusher", "stopped")
     }
 
     @Synchronized

@@ -89,23 +89,13 @@ class ServerSyncMode(
 
     override fun send(text: String): Boolean {
         val ok = wsServer?.broadcast(text, Prefs.deviceName(context)) == true
-        if (ok) {
-            AppState.onSent(context, text)
-            Log.i("SyncService", "sent ${text.length} chars")
-        } else {
-            Log.w("SyncService", "send failed (not connected?)")
-        }
+        SyncSend.text(context, text, ok)
         return ok
     }
 
     override fun sendImage(bytes: ByteArray, mime: String): Boolean {
         val ok = wsServer?.broadcastImage(bytes, mime, Prefs.deviceName(context)) == true
-        if (ok) {
-            AppState.onSent(context, "[image: $mime, ${bytes.size} bytes]")
-            Log.i("SyncService", "sent ${bytes.size} byte $mime image")
-        } else {
-            Log.w("SyncService", "sendImage failed (not connected?)")
-        }
+        SyncSend.image(context, mime, bytes, ok)
         return ok
     }
 }

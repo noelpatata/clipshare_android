@@ -10,7 +10,7 @@ import win.downops.clipshare.sync.SyncService
 import win.downops.clipshare.util.Constants
 
 /**
- * Pushes clipboard content to the connected daemon, shared by [ClipboardSync]
+ * Pushes clipboard content to the connected daemon, shared by [ClipboardPusher]
  * (foreground capture) and the background accessibility service.
  *
  * Centralizes the connected check, the byte-hash deduplication including loop

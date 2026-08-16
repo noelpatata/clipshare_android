@@ -4,8 +4,7 @@ import android.content.Context
 import android.net.Uri
 import win.downops.clipshare.settings.Prefs
 import win.downops.clipshare.util.Constants
-import org.json.JSONArray
-import org.json.JSONObject
+import win.downops.clipshare.util.JsonList
 import java.io.File
 import java.security.KeyStore
 import java.security.MessageDigest
@@ -316,22 +315,7 @@ object CertStore {
         return null
     }
 
-    private fun parseCertificate(pem: String): X509Certificate? {
-        val cleaned = pem
-            .replace("-----BEGIN CERTIFICATE-----", "")
-            .replace("-----END CERTIFICATE-----", "")
-            .replace(Regex("\\s"), "")
-        if (cleaned.isBlank()) return null
-        return try {
-            val bytes = android.util.Base64.decode(cleaned, android.util.Base64.DEFAULT)
-            CertificateFactory.getInstance("X.509")
-                .generateCertificate(bytes.inputStream()) as? X509Certificate
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private fun parseClientCerts(json: String): List<ClientCertInfo> = parseJsonArray(json) {
+    private fun parseClientCerts(json: String): List<ClientCertInfo> = JsonList.parse(json) {
         ClientCertInfo(
             id = it.optString("id"),
             label = it.optString("label"),
@@ -340,7 +324,7 @@ object CertStore {
         )
     }
 
-    private fun parseTrustedCas(json: String): List<TrustedCaInfo> = parseJsonArray(json) {
+    private fun parseTrustedCas(json: String): List<TrustedCaInfo> = JsonList.parse(json) {
         TrustedCaInfo(
             id = it.optString("id"),
             label = it.optString("label"),
@@ -349,41 +333,22 @@ object CertStore {
         )
     }
 
-    private fun <T> parseJsonArray(json: String, mapper: (JSONObject) -> T): List<T> {
-        return try {
-            val arr = JSONArray(json)
-            buildList {
-                for (i in 0 until arr.length()) {
-                    add(mapper(arr.getJSONObject(i)))
-                }
-            }
-        } catch (_: Exception) {
-            emptyList()
-        }
-    }
-
     private fun saveClientCerts(context: Context, list: List<ClientCertInfo>) {
-        val arr = JSONArray()
-        list.forEach {
-            arr.put(JSONObject()
-                .put("id", it.id)
+        Prefs.setClientCertsJson(context, JsonList.build(list) { obj, it ->
+            obj.put("id", it.id)
                 .put("label", it.label)
                 .put("caSubject", it.caSubject)
-                .put("fingerprint", it.fingerprint))
-        }
-        Prefs.setClientCertsJson(context, arr.toString())
+                .put("fingerprint", it.fingerprint)
+        })
     }
 
     private fun saveTrustedCas(context: Context, list: List<TrustedCaInfo>) {
-        val arr = JSONArray()
-        list.forEach {
-            arr.put(JSONObject()
-                .put("id", it.id)
+        Prefs.setTrustedCasJson(context, JsonList.build(list) { obj, it ->
+            obj.put("id", it.id)
                 .put("label", it.label)
                 .put("subject", it.subject)
-                .put("fingerprint", it.fingerprint))
-        }
-        Prefs.setTrustedCasJson(context, arr.toString())
+                .put("fingerprint", it.fingerprint)
+        })
     }
 
     private fun sha256Fingerprint(cert: X509Certificate): String? {
@@ -392,15 +357,6 @@ object CertStore {
             digest.joinToString(":") { "%02X".format(it) }
         } catch (_: Exception) {
             null
-        }
-    }
-
-    private fun X509Certificate.toPem(): String {
-        val encoded = android.util.Base64.encodeToString(this.encoded, android.util.Base64.DEFAULT)
-        return buildString {
-            appendLine("-----BEGIN CERTIFICATE-----")
-            append(encoded)
-            appendLine("-----END CERTIFICATE-----")
         }
     }
 

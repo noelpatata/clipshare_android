@@ -4,7 +4,7 @@ import android.net.Uri
 
 /**
  * Single source of truth for "has this clipboard content already been pushed",
- * shared by [ClipboardSync] (foreground) and the accessibility service
+ * shared by [ClipboardPusher] (foreground) and the accessibility service
  * (background).
  *
  * Every clip is treated as raw bytes and deduplicated on a hash of those bytes,

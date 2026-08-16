@@ -42,6 +42,7 @@ import win.downops.clipshare.certs.CertStore
 import win.downops.clipshare.certs.ClientCertInfo
 import win.downops.clipshare.certs.ServerCertManager
 import win.downops.clipshare.certs.TrustedCaInfo
+import win.downops.clipshare.clipboard.ClipboardWriter
 import win.downops.clipshare.logs.LogStore
 import win.downops.clipshare.settings.Prefs
 import win.downops.clipshare.settings.WhitelistEntry
@@ -487,6 +488,5 @@ private fun serverCertStatusText(context: Context): String {
 }
 
 private fun copyToClipboard(context: Context, text: String) {
-    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-    cm.setPrimaryClip(android.content.ClipData.newPlainText("ClipShare CA", text))
+    ClipboardWriter.writeText(context, "ClipShare CA", text)
 }

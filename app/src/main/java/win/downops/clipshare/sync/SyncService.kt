@@ -5,8 +5,6 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -16,6 +14,7 @@ import androidx.core.content.FileProvider
 import win.downops.clipshare.MainActivity
 import win.downops.clipshare.R
 import win.downops.clipshare.clipboard.ClipboardDedup
+import win.downops.clipshare.clipboard.ClipboardWriter
 import win.downops.clipshare.logs.Log
 import win.downops.clipshare.settings.Prefs
 import win.downops.clipshare.state.AppState
@@ -104,8 +103,7 @@ class SyncService : Service(), SyncEvents {
     private fun writeClipboard(text: String) {
         // Arm loop protection before making the content visible to listeners/polls.
         ClipboardDedup.markRemoteWritten(text.toByteArray(Charsets.UTF_8))
-        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        cm.setPrimaryClip(ClipData.newPlainText("clipshare", text))
+        ClipboardWriter.writeText(this, "clipshare", text)
     }
 
     private fun writeClipboardImage(bytes: ByteArray, mime: String) {
@@ -126,10 +124,9 @@ class SyncService : Service(), SyncEvents {
             return
         }
         val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
-        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         // Arm loop protection before making the content visible to listeners/polls.
         ClipboardDedup.markRemoteWritten(bytes)
-        cm.setPrimaryClip(ClipData.newUri(contentResolver, "clipshare image", uri))
+        ClipboardWriter.writeImage(this, "clipshare image", uri)
         Log.i("SyncService", "wrote image to clipboard: ${file.name}")
     }
 

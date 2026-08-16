@@ -56,7 +56,7 @@ object AppState {
     var service: SyncService? = null
         private set
 
-    /** True while the main activity is resumed. When foreground, ClipboardSync
+    /** True while the main activity is resumed. When foreground, ClipboardPusher
      * handles clipboard capture, so the accessibility service skips pushing to
      * avoid duplicate sends. */
     @Volatile
