@@ -118,21 +118,11 @@ fun AccessibilityScreen(context: Context) {
                 Text("How capture works", style = MaterialTheme.typography.titleSmall)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "With this setting on, ClipShare notices when you copy text in another " +
-                        "app and sends it to your computer — even while ClipShare is in the background.",
+                    "With this setting on, ClipShare notices when you copy to the clipboard " +
+                        "and sends it — even while ClipShare is in the background.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Spacer(Modifier.height(8.dp))
-                CapturePoint(
-                    "What you need to do",
-                    "Highlight the text you want and tap Copy, just like normal. ClipShare " +
-                        "sends the text you highlighted.",
-                )
-                CapturePoint(
-                    "What won't work",
-                    "Copies that don't involve highlighting text — like tapping a copy icon on " +
-                        "a phone number or address — and copying images can't be captured in the background.",
-                )
                 CapturePoint(
                     "If ClipShare is open",
                     "Copies are sent from the main screen instead, no highlighting needed.",
