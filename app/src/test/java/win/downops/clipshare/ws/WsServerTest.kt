@@ -15,10 +15,8 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import win.downops.clipshare.util.Constants
-import win.downops.clipshare.util.Protocol
-import win.downops.clipshare.util.parseClipboard
-import win.downops.clipshare.util.parseHello
-import win.downops.clipshare.util.parseType
+import win.downops.clipshare.ws.Protocol
+import win.downops.clipshare.ws.ProtocolParser
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -82,7 +80,7 @@ class WsServerTest {
             val messages = LinkedBlockingQueue<String>()
             val client = connect(port) { messages.add(it) }
 
-            val hello = parseHello(messages.await())
+            val hello = ProtocolParser.parseHello(messages.await())
             assertEquals("android-server", hello)
 
             client.send(Protocol.hello("desktop-pc", "desktop", "1.0.0"))
@@ -109,7 +107,7 @@ class WsServerTest {
             awaitListening(port)
             val messages = LinkedBlockingQueue<String>()
             val client = connect(port) { messages.add(it) }
-            parseHello(messages.await())
+            ProtocolParser.parseHello(messages.await())
 
             client.send(Protocol.ping())
 
@@ -140,8 +138,8 @@ class WsServerTest {
             val msgsB = LinkedBlockingQueue<String>()
             val a = connect(port) { msgsA.add(it) }
             val b = connect(port) { msgsB.add(it) }
-            assertNotNull(parseHello(msgsA.await()))
-            assertNotNull(parseHello(msgsB.await()))
+            assertNotNull(ProtocolParser.parseHello(msgsA.await()))
+            assertNotNull(ProtocolParser.parseHello(msgsB.await()))
 
             a.send(Protocol.hello("client-a", "android", "1"))
             a.send(Protocol.ping())
@@ -153,11 +151,11 @@ class WsServerTest {
             assertTrue(counts.contains(2))
 
             assertTrue(server.broadcast("hello all", "server"))
-            assertEquals("hello all", parseClipboard(msgsA.await())?.text)
-            assertEquals("hello all", parseClipboard(msgsB.await())?.text)
+            assertEquals("hello all", ProtocolParser.parseClipboard(msgsA.await())?.text)
+            assertEquals("hello all", ProtocolParser.parseClipboard(msgsB.await())?.text)
 
             assertTrue(server.broadcast("only b", "server", skipFrom = "client-a"))
-            assertEquals("only b", parseClipboard(msgsB.await())?.text)
+            assertEquals("only b", ProtocolParser.parseClipboard(msgsB.await())?.text)
             assertNull("client-a should not receive skipped broadcast", msgsA.poll(300, TimeUnit.MILLISECONDS))
 
             a.close(1000, "bye")
@@ -177,13 +175,13 @@ class WsServerTest {
             awaitListening(port)
             val messages = LinkedBlockingQueue<String>()
             val client = connect(port) { messages.add(it) }
-            parseHello(messages.await())
+            ProtocolParser.parseHello(messages.await())
             client.send(Protocol.hello("client-a", "android", "1"))
 
             val bytes = byteArrayOf(0x0, 0x1, 0x2, 0x7f, -1, 0x42)
             assertTrue(server.broadcastImage(bytes, Constants.Mime.IMAGE_PNG, "server"))
 
-            val clip = parseClipboard(messages.await())
+            val clip = ProtocolParser.parseClipboard(messages.await())
             assertEquals(Constants.Mime.IMAGE_PNG, clip?.mime)
             assertArrayEquals(bytes, clip?.image)
 

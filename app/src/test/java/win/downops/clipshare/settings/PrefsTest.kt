@@ -37,6 +37,9 @@ class PrefsTest {
         assertFalse(Prefs.tlsEnabled(ctx))
         assertEquals(Prefs.MODE_DISCOVER, Prefs.connectionMode(ctx))
         assertEquals(10240, Prefs.maxImagePayloadKb(ctx))
+        assertEquals(256, Prefs.maxLogFileKb(ctx))
+        assertEquals(50, Prefs.maxHistoryEntries(ctx))
+        assertEquals(700L, Prefs.clipboardPollMs(ctx))
         assertEquals("[]", Prefs.clientCertsJson(ctx))
         assertEquals("[]", Prefs.trustedCasJson(ctx))
         assertEquals(emptyList<WhitelistEntry>(), Prefs.whitelist(ctx))
@@ -56,6 +59,9 @@ class PrefsTest {
         Prefs.setTlsEnabled(ctx, true)
         Prefs.setConnectionMode(ctx, Prefs.MODE_WHITELIST)
         Prefs.setMaxImagePayloadKb(ctx, 256)
+        Prefs.setMaxLogFileKb(ctx, 512)
+        Prefs.setMaxHistoryEntries(ctx, 100)
+        Prefs.setClipboardPollMs(ctx, 1200)
         Prefs.setClientCertsJson(ctx, """[{"alias":"c"}]""")
         Prefs.setTrustedCasJson(ctx, """[{"name":"ca"}]""")
 
@@ -71,6 +77,9 @@ class PrefsTest {
         assertTrue(Prefs.tlsEnabled(ctx))
         assertEquals(Prefs.MODE_WHITELIST, Prefs.connectionMode(ctx))
         assertEquals(256, Prefs.maxImagePayloadKb(ctx))
+        assertEquals(512, Prefs.maxLogFileKb(ctx))
+        assertEquals(100, Prefs.maxHistoryEntries(ctx))
+        assertEquals(1200L, Prefs.clipboardPollMs(ctx))
         assertEquals("""[{"alias":"c"}]""", Prefs.clientCertsJson(ctx))
         assertEquals("""[{"name":"ca"}]""", Prefs.trustedCasJson(ctx))
     }
@@ -82,6 +91,33 @@ class PrefsTest {
 
         Prefs.setMaxImagePayloadKb(ctx, 99999)
         assertEquals(2048, Prefs.maxImagePayloadKb(ctx))
+    }
+
+    @Test
+    fun maxLogFileKbIsClamped() {
+        Prefs.setMaxLogFileKb(ctx, 1)
+        assertEquals(16, Prefs.maxLogFileKb(ctx))
+
+        Prefs.setMaxLogFileKb(ctx, 999999)
+        assertEquals(4096, Prefs.maxLogFileKb(ctx))
+    }
+
+    @Test
+    fun maxHistoryEntriesIsClamped() {
+        Prefs.setMaxHistoryEntries(ctx, 1)
+        assertEquals(10, Prefs.maxHistoryEntries(ctx))
+
+        Prefs.setMaxHistoryEntries(ctx, 99999)
+        assertEquals(1000, Prefs.maxHistoryEntries(ctx))
+    }
+
+    @Test
+    fun clipboardPollMsIsClamped() {
+        Prefs.setClipboardPollMs(ctx, 10)
+        assertEquals(200L, Prefs.clipboardPollMs(ctx))
+
+        Prefs.setClipboardPollMs(ctx, 99999)
+        assertEquals(10_000L, Prefs.clipboardPollMs(ctx))
     }
 
     @Test

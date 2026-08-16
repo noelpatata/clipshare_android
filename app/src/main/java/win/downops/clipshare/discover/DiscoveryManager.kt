@@ -4,6 +4,8 @@ import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
+import android.os.Build
+import androidx.annotation.RequiresExtension
 import androidx.core.content.ContextCompat
 import win.downops.clipshare.state.AppState
 import win.downops.clipshare.state.DiscoveredDevice
@@ -61,6 +63,7 @@ class DiscoveryManager(
 
             override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {}
 
+            @RequiresExtension(extension = Build.VERSION_CODES.TIRAMISU, version = 3)
             override fun onServiceFound(service: NsdServiceInfo) {
                 nsdManager.resolveService(
                     service,

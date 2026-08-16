@@ -15,413 +15,77 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.FileProvider
 import win.downops.clipshare.MainActivity
 import win.downops.clipshare.R
-import win.downops.clipshare.certs.CertStore
-import win.downops.clipshare.certs.ServerCertManager
-import win.downops.clipshare.discover.DiscoveryAdvertiser
-import win.downops.clipshare.discover.DiscoveryManager
+import win.downops.clipshare.clipboard.ClipboardDedup
 import win.downops.clipshare.logs.Log
 import win.downops.clipshare.settings.Prefs
 import win.downops.clipshare.state.AppState
 import win.downops.clipshare.util.Constants
-import win.downops.clipshare.util.Protocol
-import win.downops.clipshare.ws.WsClient
-import win.downops.clipshare.ws.WsServer
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import win.downops.clipshare.ws.Protocol
 import java.io.File
 
 /**
  * Foreground service that runs in either client or server mode.
  *
- * Client mode: discovers desktop/Android servers and maintains a WebSocket
- *             connection to the selected one.
- * Server mode: listens for inbound WebSocket connections from other ClipShare
- *             clients and advertises itself via mDNS/UDP beacons.
+ * The mode-specific logic lives in [ClientSyncMode] and [ServerSyncMode],
+ * chosen here from the configured app mode. This class only coordinates:
+ * it starts the active mode, exposes send/switchTo to the UI and tile, and
+ * owns the shared clipboard-receive + notification behavior ([SyncEvents]).
  */
-class SyncService : Service() {
+class SyncService : Service(), SyncEvents {
 
-    private var ws: WsClient? = null
-    private var discovery: DiscoveryManager? = null
-    private var wsServer: WsServer? = null
-    private var advertiser: DiscoveryAdvertiser? = null
-    private val lock = Object()
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
-    @Volatile
-    private var running = false
-
-    @Volatile
-    private var appMode = Prefs.APP_MODE_CLIENT
-
-    /** The daemon we are currently (or last) targeting. */
-    @Volatile
-    private var currentHost: String? = null
-
-    @Volatile
-    private var currentPort: Int = 0
-
-    @Volatile
-    private var currentTls: Boolean = false
-
-    @Volatile
-    private var whitelistCandidates: List<Pair<String, Int>> = emptyList()
-
-    @Volatile
-    private var whitelistIndex = 0
+    private var mode: SyncMode? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         Log.init(this)
-        running = true
         createChannel()
         startForeground(Constants.Notification.ID, buildNotification("Starting..."))
         Log.i("SyncService", "onCreate")
         AppState.onServiceStarted(this)
-        appMode = Prefs.appMode(this)
-        AppState.setAppMode(appMode)
+        AppState.setAppMode(Prefs.appMode(this))
 
-        if (appMode == Prefs.APP_MODE_SERVER) {
-            startServerMode()
+        val m = if (Prefs.appMode(this) == Prefs.APP_MODE_SERVER) {
+            ServerSyncMode(this, this)
         } else {
-            startClientMode()
+            ClientSyncMode(this, this)
         }
+        mode = m
+        m.start()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.i("SyncService", "onStartCommand")
-        if (appMode == Prefs.APP_MODE_CLIENT) {
-            val shouldConnect = synchronized(lock) { ws == null }
-            if (shouldConnect) connect()
-        }
+        mode?.onStartCommand()
         return START_STICKY
     }
 
     // ------------------------------------------------------------------
-    // Server mode
+    // Delegation to the active mode
     // ------------------------------------------------------------------
 
-    private fun startServerMode() {
-        val port = Prefs.serverPort(this)
-        val tls = Prefs.serverTlsEnabled(this)
+    /** Push local clipboard text to peers. Called from the app UI, the
+     * accessibility service or the quick-settings tile while connected. */
+    fun send(text: String): Boolean = mode?.send(text) == true
 
-        if (tls && !ServerCertManager.hasCerts(this)) {
-            Log.i("SyncService", "generating server certificates")
-            ServerCertManager.generate(this, Prefs.deviceName(this))
-        }
-
-        val keyStore = if (tls) ServerCertManager.loadKeyStore(this) else null
-        if (tls && keyStore == null) {
-            val msg = "Server TLS enabled but certificate failed to load"
-            Log.e("SyncService", msg)
-            AppState.onError(msg)
-            updateNotification(msg)
-            return
-        }
-
-        val server = WsServer(
-            port = port,
-            deviceName = Prefs.deviceName(this),
-            keyStore = keyStore,
-            keyStorePassword = if (tls) Constants.Pkcs12.PASSWORD.toCharArray() else null,
-            onReceived = { from, clip ->
-                receive(clip)
-                broadcastReceived(clip, skipFrom = from)
-            },
-            onClientChange = { count ->
-                AppState.onServerClientCountChanged(count)
-                updateNotification(
-                    if (count == 0) "Server running on :$port (no clients)"
-                    else "Server running on :$port ($count client${if (count == 1) "" else "s"})"
-                )
-            },
-        )
-        wsServer = server
-        server.start()
-        AppState.onServerStarted(port)
-        updateNotification("Server running on :$port")
-
-        val beaconPort = Prefs.discoveryBeaconPort(this)
-        val adv = DiscoveryAdvertiser(this, beaconPort)
-        advertiser = adv
-        adv.start(Prefs.deviceName(this), port, tls)
-    }
-
-    private fun stopServerMode() {
-        wsServer?.stop()
-        wsServer = null
-        advertiser?.stop()
-        advertiser = null
-    }
-
-    /** Broadcast a just-received clipboard item to every other connected client. */
-    private fun broadcastReceived(clip: Protocol.Clipboard, skipFrom: String) {
-        val server = wsServer ?: return
-        val from = Prefs.deviceName(this)
-        clip.text?.let { server.broadcast(it, from, skipFrom) }
-        clip.image?.let { server.broadcastImage(it, clip.mime ?: Constants.Mime.IMAGE_PNG, from, skipFrom) }
-    }
-
-    // ------------------------------------------------------------------
-    // Client mode
-    // ------------------------------------------------------------------
-
-    private fun startClientMode() {
-        startDiscovery()
-    }
-
-    private fun startDiscovery() {
-        if (Prefs.connectionMode(this) == Prefs.MODE_WHITELIST) {
-            Log.i("SyncService", "discovery skipped: whitelist mode")
-            return
-        }
-        if (!Prefs.discoveryEnabled(this)) {
-            Log.i("SyncService", "discovery skipped: disabled")
-            return
-        }
-        Log.i("SyncService", "starting discovery")
-        val beaconPort = Prefs.discoveryBeaconPort(this)
-        val d = DiscoveryManager(this, beaconPort) { name, host, port, tls, _ ->
-            Log.i("SyncService", "discovered $name at $host:$port (tls=$tls)")
-            onDeviceFound(name, host, port, tls)
-        }
-        discovery = d
-        d.start()
-    }
-
-    /** Called from the discovery threads whenever a daemon announces itself. */
-    private fun onDeviceFound(name: String, host: String, port: Int, tls: Boolean) {
-        if (!running) return
-        if (!Prefs.autoConnect(this)) return
-        connectTo(host, port, tls, verifyName = false, persist = true)
-    }
+    /** Push a local image to peers. */
+    fun sendImage(bytes: ByteArray, mime: String): Boolean =
+        mode?.sendImage(bytes, mime) == true
 
     /**
      * Manually switch to a specific daemon (e.g. user taps a device in the UI).
+     * No-op in server mode.
      */
     fun switchTo(host: String, port: Int, tls: Boolean) {
-        connectTo(host, port, tls, verifyName = false, persist = true)
-    }
-
-    private fun connect() {
-        if (Prefs.connectionMode(this) == Prefs.MODE_WHITELIST) {
-            startWhitelistConnections()
-            return
-        }
-        val host = currentHost ?: Prefs.serverHost(this).takeIf { it.isNotBlank() } ?: run {
-            AppState.onSearching()
-            updateNotification("Searching for servers...")
-            Log.i("SyncService", "no host configured, searching via discovery")
-            return
-        }
-        val port = if (currentPort > 0) currentPort else Prefs.serverPort(this)
-        Log.i("SyncService", "connecting to $host:$port (tls=${Prefs.tlsEnabled(this)})")
-        connectTo(host, port, Prefs.tlsEnabled(this), verifyName = false, persist = false)
-    }
-
-    private fun connectTo(
-        host: String,
-        port: Int,
-        tls: Boolean,
-        verifyName: Boolean,
-        persist: Boolean,
-    ) {
-        synchronized(lock) {
-            if (currentHost == host && currentPort == port && currentTls == tls && ws != null) {
-                Log.d("SyncService", "already connected/connecting to $host:$port")
-                return
-            }
-            currentHost = host
-            currentPort = port
-            currentTls = tls
-            ws?.stop()
-            val socket = buildSocket(host, port, tls, verifyName)
-            ws = socket
-            if (socket != null) {
-                if (persist) {
-                    Prefs.setServerHost(this, host)
-                    Prefs.setServerPort(this, port)
-                }
-                AppState.onConnecting()
-                updateNotification("Connecting to $host...")
-                socket.start()
-            }
-        }
-    }
-
-    private fun buildSocket(host: String, port: Int, tls: Boolean, verifyName: Boolean): WsClient? {
-        val token = Prefs.token(this)
-        val scheme = if (tls) Constants.Protocol.Scheme.WSS else Constants.Protocol.Scheme.WS
-        var url = "$scheme://$host:$port${Constants.Protocol.WS_PATH}"
-        if (token.isNotBlank()) {
-            url += "?token=" + token
-        }
-        val hello = Protocol.hello(Prefs.deviceName(this), Constants.Protocol.PLATFORM_ANDROID, Constants.App.VERSION)
-        Log.i("SyncService", "opening $url")
-
-        val tlsConfig = if (tls) {
-            val clientTls = CertStore.clientTlsWithCert(this) ?: CertStore.trustOnlyTls(this)
-            if (clientTls == null) {
-                val msg = "TLS on, but no client certificate or trusted CA imported"
-                Log.e("SyncService", msg)
-                AppState.onError(msg)
-                updateNotification("TLS on, but no certificate or CA imported")
-                onConnectFailed()
-                return null
-            }
-            clientTls
-        } else null
-
-        lateinit var socket: WsClient
-        socket = WsClient(
-            url = url,
-            hello = hello,
-            tls = tlsConfig,
-            onConnected = conn@{ name, _ ->
-                synchronized(lock) { if (ws !== socket) return@conn }
-                Log.i("SyncService", "connected to $name at $host")
-                if (verifyName && name.isNotBlank() && !whitelistNameMatches(name)) {
-                    Log.w("SyncService", "name $name rejected by whitelist")
-                    rejectCurrent()
-                } else {
-                    AppState.onConnected(name, host)
-                    updateNotification("Connected to $host")
-                }
-            },
-            onClipboard = clip@{ clip ->
-                synchronized(lock) { if (ws !== socket) return@clip }
-                receive(clip)
-            },
-            onDisconnected = disc@{ reason ->
-                synchronized(lock) {
-                    if (ws !== socket) return@disc
-                }
-                Log.i("SyncService", "disconnected: ${reason ?: "unknown"}")
-                AppState.onDisconnected(reason)
-                updateNotification("Disconnected")
-            },
-            onReconnecting = recon@{ attempt ->
-                synchronized(lock) { if (ws !== socket) return@recon }
-                Log.i("SyncService", "reconnecting attempt $attempt")
-                AppState.onReconnecting(attempt)
-                updateNotification("Reconnecting ($host)...")
-            },
-            onConnectFailed = failed@{
-                synchronized(lock) { if (ws !== socket) return@failed }
-                Log.w("SyncService", "connect failed")
-                onConnectFailed()
-            },
-            onError = err@{ msg ->
-                synchronized(lock) { if (ws !== socket) return@err }
-                Log.e("SyncService", "error: $msg")
-                AppState.onError(msg)
-            },
-        )
-        return socket
-    }
-
-    /** A whitelisted daemon presented the wrong identity: drop and move on. */
-    private fun rejectCurrent() {
-        stopWs()
-        onConnectFailed()
-    }
-
-    /** Whitelist mode: connect to each whitelisted IP in turn. */
-    private fun startWhitelistConnections() {
-        whitelistCandidates = Prefs.whitelist(this).mapNotNull {
-            it.ip.trim().takeIf { ip -> ip.isNotBlank() }?.let { ip -> ip to Prefs.serverPort(this) }
-        }
-        whitelistIndex = 0
-        if (whitelistCandidates.isEmpty()) {
-            AppState.onSearching()
-            updateNotification("No whitelist IPs configured")
-            return
-        }
-        connectToCandidate()
-    }
-
-    private fun connectToCandidate() {
-        val candidates = whitelistCandidates
-        if (candidates.isEmpty() || !running) return
-        val idx = whitelistIndex % candidates.size
-        whitelistIndex++
-        val (host, port) = candidates[idx]
-        connectTo(host, port, Prefs.tlsEnabled(this), verifyName = true, persist = false)
-    }
-
-    /** Advances to the next whitelist candidate after a failed attempt. */
-    private fun onConnectFailed() {
-        if (Prefs.connectionMode(this) != Prefs.MODE_WHITELIST) return
-        if (whitelistCandidates.isEmpty()) return
-        stopWs()
-        scope.launch {
-            delay(Constants.Whitelist.RETRY_DELAY_MS)
-            if (running) connectToCandidate()
-        }
-    }
-
-    private fun whitelistNameMatches(name: String): Boolean {
-        val host = currentHost ?: return false
-        val entry = Prefs.whitelist(this).firstOrNull { it.ip == host }
-            ?: return false
-        return entry.name.isBlank() || entry.name == name
-    }
-
-    private fun stopWs() {
-        synchronized(lock) {
-            ws?.stop()
-            ws = null
-        }
+        mode?.switchTo(host, port, tls)
     }
 
     // ------------------------------------------------------------------
-    // Shared send / receive
+    // SyncEvents: shared inbound handling
     // ------------------------------------------------------------------
 
-    /** Push local clipboard text to peers. Called from the app UI or the
-     * accessibility service while connected. */
-    fun send(text: String): Boolean {
-        val ok = if (appMode == Prefs.APP_MODE_SERVER) {
-            wsServer?.broadcast(text, Prefs.deviceName(this)) == true
-        } else {
-            ws?.send(text, Prefs.deviceName(this)) == true
-        }
-        if (ok) {
-            AppState.onSent(this, text)
-            Log.i("SyncService", "sent ${text.length} chars")
-        } else {
-            Log.w("SyncService", "send failed (not connected?)")
-        }
-        return ok
-    }
-
-    /** Push a local image to peers. */
-    fun sendImage(bytes: ByteArray, mime: String): Boolean {
-        val ok = if (appMode == Prefs.APP_MODE_SERVER) {
-            wsServer?.broadcastImage(bytes, mime, Prefs.deviceName(this)) == true
-        } else {
-            val ws = synchronized(lock) { ws }
-            if (ws == null) {
-                Log.w("SyncService", "sendImage: no active socket")
-                return false
-            }
-            ws.sendImage(bytes, mime, Prefs.deviceName(this))
-        }
-        if (ok) {
-            AppState.onSent(this, "[image: $mime, ${bytes.size} bytes]")
-            Log.i("SyncService", "sent ${bytes.size} byte $mime image")
-        } else {
-            Log.w("SyncService", "sendImage failed (not connected?)")
-        }
-        return ok
-    }
-
-    private fun receive(clip: Protocol.Clipboard) {
+    override fun receive(clip: Protocol.Clipboard) {
         val image = clip.image
         if (image != null) {
             Log.i("SyncService", "received ${image.size} byte ${clip.mime ?: "image"}")
@@ -438,9 +102,10 @@ class SyncService : Service() {
     }
 
     private fun writeClipboard(text: String) {
+        // Arm loop protection before making the content visible to listeners/polls.
+        ClipboardDedup.markRemoteWritten(text.toByteArray(Charsets.UTF_8))
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         cm.setPrimaryClip(ClipData.newPlainText("clipshare", text))
-        AppState.lastRemoteWritten = text
     }
 
     private fun writeClipboardImage(bytes: ByteArray, mime: String) {
@@ -462,14 +127,20 @@ class SyncService : Service() {
         }
         val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        // Arm loop protection before making the content visible to listeners/polls.
+        ClipboardDedup.markRemoteWritten(bytes)
         cm.setPrimaryClip(ClipData.newUri(contentResolver, "clipshare image", uri))
-        AppState.lastRemoteWrittenImage = bytes
         Log.i("SyncService", "wrote image to clipboard: ${file.name}")
     }
 
     // ------------------------------------------------------------------
     // Notification
     // ------------------------------------------------------------------
+
+    override fun updateNotification(text: String) {
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.notify(Constants.Notification.ID, buildNotification(text))
+    }
 
     private fun createChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -496,18 +167,9 @@ class SyncService : Service() {
             .build()
     }
 
-    private fun updateNotification(text: String) {
-        val nm = getSystemService(NotificationManager::class.java)
-        nm.notify(Constants.Notification.ID, buildNotification(text))
-    }
-
     override fun onDestroy() {
-        running = false
-        scope.cancel()
-        stopWs()
-        discovery?.stop()
-        discovery = null
-        stopServerMode()
+        mode?.stop()
+        mode = null
         AppState.onServiceStopped()
         Log.i("SyncService", "onDestroy")
         super.onDestroy()

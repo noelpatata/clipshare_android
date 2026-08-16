@@ -16,8 +16,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import win.downops.clipshare.util.Protocol
-import win.downops.clipshare.util.parseHello
+import win.downops.clipshare.ws.Protocol
+import win.downops.clipshare.ws.ProtocolParser
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
@@ -106,7 +106,7 @@ class WsClientTest {
         assertNull(clip.image)
 
         val hello = serverMessages.await()
-        assertEquals("android-test", win.downops.clipshare.util.parseHello(hello))
+        assertEquals("android-test", ProtocolParser.parseHello(hello))
 
         val names = mutableListOf<String>()
         connectedNames.drainTo(names)
@@ -137,7 +137,7 @@ class WsClientTest {
 
         assertTrue(serverOpen.await(15, TimeUnit.SECONDS))
         val hello = serverMessages.await()
-        assertEquals("android-test", parseHello(hello))
+        assertEquals("android-test", ProtocolParser.parseHello(hello))
         val reply = serverMessages.await()
         assertEquals(Protocol.pong(), reply)
         client.stop()

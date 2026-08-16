@@ -49,7 +49,7 @@ class MainScreenUiTest {
                 onPushText = { pushedText = it },
                 onConnectTo = { connectedDevice = it },
                 onToggle = { toggled++ },
-                onOpenSettings = {},
+                onClearHistory = {},
             )
         }
     }
@@ -136,6 +136,24 @@ class MainScreenUiTest {
             assertEquals(40403, connectedDevice?.port)
             assertNotNull(connectedDevice?.tls)
         }
+    }
+
+    @Test
+    fun clientMode_connectedDeviceShowsConnectedInsteadOfConnect() {
+        AppState.setAppMode(Prefs.APP_MODE_CLIENT)
+        AppState.onConnected("downops", "192.168.0.45")
+        AppState.setDiscovered(
+            listOf(
+                DiscoveredDevice("downops", "192.168.0.45", 40403, "beacon", tls = true),
+                DiscoveredDevice("laptop", "192.168.1.10", 40403, "beacon", tls = false),
+            ),
+        )
+        setContent()
+
+        composeRule.onNodeWithText("192.168.0.45:40403", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("Connected").assertIsDisplayed()
+        // The other device still offers to connect.
+        composeRule.onNodeWithText("Connect").assertIsDisplayed()
     }
 
     // ------------------------------------------------------------------

@@ -31,22 +31,31 @@ class SettingsUiTest {
     val composeRule = createComposeRule()
 
     private lateinit var context: Context
+    private var saveFn: (() -> Unit)? = null
 
     @Before
     fun setUp() {
         context = InstrumentationRegistry.getInstrumentation().targetContext
         context.getSharedPreferences("clipshare_prefs", Context.MODE_PRIVATE).edit().clear().commit()
         AppState.resetForTesting()
+        saveFn = null
     }
 
-    private fun setContent(onBack: () -> Unit = {}, onOpenLogs: () -> Unit = {}) {
+    private fun setContent(onBack: () -> Unit = {}) {
         composeRule.setContent {
-            SettingsScreen(context = context, onBack = onBack, onOpenLogs = onOpenLogs)
+            SettingsScreen(
+                context = context,
+                onBack = onBack,
+                registerSave = { saveFn = it },
+            )
         }
     }
 
     private fun clickSave() {
-        composeRule.onNodeWithText("Save").performScrollTo().performClick()
+        composeRule.runOnIdle {
+            val fn = saveFn ?: error("save handler not registered")
+            fn()
+        }
     }
 
     // ------------------------------------------------------------------

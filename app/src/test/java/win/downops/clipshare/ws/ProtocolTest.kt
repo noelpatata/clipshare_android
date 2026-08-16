@@ -1,4 +1,4 @@
-package win.downops.clipshare.util
+package win.downops.clipshare.ws
 
 import android.util.Base64
 import org.json.JSONObject
@@ -11,6 +11,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import win.downops.clipshare.util.Constants
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
@@ -54,7 +55,7 @@ class ProtocolTest {
 
     @Test
     fun parseClipboard_parsesTextMessage() {
-        val clip = parseClipboard(Protocol.clipboard("some text", "laptop"))!!
+        val clip = ProtocolParser.parseClipboard(Protocol.clipboard("some text", "laptop"))!!
 
         assertNull(clip.image)
         assertNull(clip.mime)
@@ -66,7 +67,7 @@ class ProtocolTest {
     @Test
     fun parseClipboard_roundTripsImage() {
         val bytes = ByteArray(16) { it.toByte() }
-        val clip = parseClipboard(Protocol.clipboardImage(bytes, Constants.Mime.IMAGE_JPEG, "desktop"))!!
+        val clip = ProtocolParser.parseClipboard(Protocol.clipboardImage(bytes, Constants.Mime.IMAGE_JPEG, "desktop"))!!
 
         assertNull(clip.text)
         assertEquals(Constants.Mime.IMAGE_JPEG, clip.mime)
@@ -88,14 +89,14 @@ class ProtocolTest {
             )
             .toString()
 
-        val clip = parseClipboard(json)!!
+        val clip = ProtocolParser.parseClipboard(json)!!
         assertEquals(Constants.Mime.IMAGE_PNG, clip.mime)
     }
 
     @Test
     fun parseClipboard_returnsNullForNonClipboardType() {
-        assertNull(parseClipboard(Protocol.ping()))
-        assertNull(parseClipboard("""{"type":"hello","data":{"name":"x"}}"""))
+        assertNull(ProtocolParser.parseClipboard(Protocol.ping()))
+        assertNull(ProtocolParser.parseClipboard("""{"type":"hello","data":{"name":"x"}}"""))
     }
 
     @Test
@@ -104,7 +105,7 @@ class ProtocolTest {
             .put("type", Constants.Protocol.Msg.CLIPBOARD)
             .put("data", JSONObject().put("type", Constants.Protocol.Content.TEXT).put("text", "  ").put("from", "x"))
             .toString()
-        assertNull(parseClipboard(json))
+        assertNull(ProtocolParser.parseClipboard(json))
     }
 
     @Test
@@ -113,19 +114,19 @@ class ProtocolTest {
             .put("type", Constants.Protocol.Msg.CLIPBOARD)
             .put("data", JSONObject().put("type", Constants.Protocol.Content.IMAGE).put("data", "").put("from", "x"))
             .toString()
-        assertNull(parseClipboard(blank))
+        assertNull(ProtocolParser.parseClipboard(blank))
 
         val invalid = JSONObject()
             .put("type", Constants.Protocol.Msg.CLIPBOARD)
             .put("data", JSONObject().put("type", Constants.Protocol.Content.IMAGE).put("data", "!!not-base64!!").put("from", "x"))
             .toString()
-        assertNull(parseClipboard(invalid))
+        assertNull(ProtocolParser.parseClipboard(invalid))
     }
 
     @Test
     fun parseClipboard_returnsNullForMalformedJson() {
-        assertNull(parseClipboard("{not valid json"))
-        assertNull(parseClipboard(""))
+        assertNull(ProtocolParser.parseClipboard("{not valid json"))
+        assertNull(ProtocolParser.parseClipboard(""))
     }
 
     @Test
@@ -135,36 +136,55 @@ class ProtocolTest {
             .put("data", JSONObject().put("code", "E_AUTH").put("msg", "bad token"))
             .toString()
 
-        val error = parseError(json)!!
+        val error = ProtocolParser.parseError(json)!!
         assertEquals("E_AUTH", error.code)
         assertEquals("bad token", error.msg)
     }
 
     @Test
     fun parseError_returnsNullForNonErrorType() {
-        assertNull(parseError(Protocol.ping()))
+        assertNull(ProtocolParser.parseError(Protocol.ping()))
     }
 
     @Test
     fun parseType_extractsMessageType() {
-        assertEquals(Constants.Protocol.Msg.HELLO, parseType(Protocol.hello("n", "p", "v")))
-        assertEquals(Constants.Protocol.Msg.PING, parseType(Protocol.ping()))
-        assertNull(parseType("garbage"))
+        assertEquals(Constants.Protocol.Msg.HELLO, ProtocolParser.parseType(Protocol.hello("n", "p", "v")))
+        assertEquals(Constants.Protocol.Msg.PING, ProtocolParser.parseType(Protocol.ping()))
+        assertNull(ProtocolParser.parseType("garbage"))
     }
 
     @Test
     fun parseHello_extractsName() {
-        assertEquals("my-device", parseHello(Protocol.hello("my-device", "android", "1.0.0")))
+        assertEquals("my-device", ProtocolParser.parseHello(Protocol.hello("my-device", "android", "1.0.0")))
     }
 
     @Test
     fun parseHello_returnsNullForWrongTypeOrBlankName() {
-        assertNull(parseHello(Protocol.ping()))
+        assertNull(ProtocolParser.parseHello(Protocol.ping()))
         val blank = JSONObject()
             .put("type", Constants.Protocol.Msg.HELLO)
             .put("data", JSONObject().put("name", "  ").put("platform", "android"))
             .toString()
-        assertNull(parseHello(blank))
+        assertNull(ProtocolParser.parseHello(blank))
+    }
+
+    @Test
+    fun parseRoutesEachMessageType() {
+        assertTrue(ProtocolParser.parse(Protocol.hello("n", "p", "v")) is ProtocolMessage.Hello)
+        assertTrue(ProtocolParser.parse(Protocol.clipboard("text", "x")) is ProtocolMessage.Clipboard)
+        assertTrue(ProtocolParser.parse(Protocol.ping()) is ProtocolMessage.Ping)
+        assertTrue(ProtocolParser.parse(Protocol.pong()) is ProtocolMessage.Pong)
+        assertTrue(ProtocolParser.parse("garbage") is ProtocolMessage.Unknown)
+    }
+
+    @Test
+    fun parseFallsBackToUnknownForInvalidKnownType() {
+        // clipboard with blank text fails validation, so it is dropped
+        val blank = JSONObject()
+            .put("type", Constants.Protocol.Msg.CLIPBOARD)
+            .put("data", JSONObject().put("type", Constants.Protocol.Content.TEXT).put("text", " "))
+            .toString()
+        assertTrue(ProtocolParser.parse(blank) is ProtocolMessage.Unknown)
     }
 
     @Test

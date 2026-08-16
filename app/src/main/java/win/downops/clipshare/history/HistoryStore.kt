@@ -1,9 +1,10 @@
 package win.downops.clipshare.history
 
 import android.content.Context
-import win.downops.clipshare.util.Constants
+import win.downops.clipshare.settings.Prefs
 import org.json.JSONArray
 import org.json.JSONObject
+import androidx.core.content.edit
 
 data class HistoryEntry(
     val text: String,
@@ -13,11 +14,10 @@ data class HistoryEntry(
     val isImage: Boolean = false,
 )
 
-/** Persists recent clipboard history in SharedPreferences (last 50 entries). */
+/** Persists recent clipboard history in SharedPreferences (newest first). */
 object HistoryStore {
     private const val FILE = "clipshare_history"
     private const val KEY = "entries"
-    private const val MAX = Constants.History.MAX_ENTRIES
 
     fun load(ctx: Context): List<HistoryEntry> {
         val raw = ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -44,7 +44,8 @@ object HistoryStore {
     }
 
     fun append(ctx: Context, entry: HistoryEntry) {
-        val entries = (listOf(entry) + load(ctx)).take(MAX)
+        val max = Prefs.maxHistoryEntries(ctx)
+        val entries = (listOf(entry) + load(ctx)).take(max)
         val arr = JSONArray()
         for (e in entries) {
             arr.put(
@@ -57,6 +58,11 @@ object HistoryStore {
             )
         }
         ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
-            .edit().putString(KEY, arr.toString()).apply()
+            .edit { putString(KEY, arr.toString()) }
+    }
+
+    fun clear(ctx: Context) {
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+            .edit { remove(KEY) }
     }
 }

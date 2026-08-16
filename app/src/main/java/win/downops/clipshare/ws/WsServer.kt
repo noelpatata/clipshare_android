@@ -15,13 +15,14 @@ import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
 import io.ktor.websocket.close
 import io.ktor.websocket.readText
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import win.downops.clipshare.logs.Log
 import win.downops.clipshare.util.Constants
-import win.downops.clipshare.util.Protocol
-import win.downops.clipshare.util.parseClipboard
-import win.downops.clipshare.util.parseHello
-import win.downops.clipshare.util.parseType
 import java.security.KeyStore
 import java.util.Collections
 
@@ -44,6 +45,7 @@ class WsServer(
 
     private var server: ApplicationEngine? = null
     private val sessions = Collections.synchronizedSet(LinkedHashSet<Session>())
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Volatile
     private var running = false
@@ -100,6 +102,7 @@ class WsServer(
         }
         server?.stop(500, 1000)
         server = null
+        scope.cancel()
         onClientChange(0)
         Log.i("WsServer", "stopped")
     }
@@ -122,9 +125,15 @@ class WsServer(
         }
         if (targets.isEmpty()) return false
         targets.forEach { session ->
-            val result = session.session.outgoing.trySend(Frame.Text(msg))
-            if (result.isFailure) {
-                Log.w("WsServer", "failed to send to ${session.name}")
+            // Use the suspending send (applies backpressure/queues) instead of a
+            // non-blocking trySend, which silently drops frames when the channel
+            // is momentarily full or the session is closing.
+            scope.launch {
+                try {
+                    session.session.send(Frame.Text(msg))
+                } catch (e: Exception) {
+                    Log.w("WsServer", "failed to send to ${session.name}: ${e.message}")
+                }
             }
         }
         return true
@@ -143,25 +152,23 @@ class WsServer(
             for (frame in ws.incoming) {
                 if (frame !is Frame.Text) continue
                 val text = frame.readText()
-                when (parseType(text)) {
-                    Constants.Protocol.Msg.HELLO -> {
-                        parseHello(text)?.let {
-                            name = it
-                            session.name = it
-                            onClientChange(sessions.size)
-                            Log.i("WsServer", "client identified as $it")
-                        }
+                when (val msg = ProtocolParser.parse(text)) {
+                    is ProtocolMessage.Hello -> {
+                        name = msg.name
+                        session.name = msg.name
+                        onClientChange(sessions.size)
+                        Log.i("WsServer", "client identified as ${msg.name}")
                     }
-                    Constants.Protocol.Msg.CLIPBOARD -> {
-                        val clip = parseClipboard(text)
-                        if (clip != null && !clip.isEmpty) {
+                    is ProtocolMessage.Clipboard -> {
+                        if (!msg.clip.isEmpty) {
                             Log.i("WsServer", "clipboard from $name")
-                            onReceived(name, clip)
+                            onReceived(name, msg.clip)
                         }
                     }
-                    Constants.Protocol.Msg.PING -> ws.send(Frame.Text(Protocol.pong()))
-                    Constants.Protocol.Msg.PONG -> Unit
-                    else -> Log.d("WsServer", "ignored message type")
+                    ProtocolMessage.Ping -> ws.send(Frame.Text(Protocol.pong()))
+                    ProtocolMessage.Pong -> Unit
+                    is ProtocolMessage.Error -> Unit
+                    ProtocolMessage.Unknown -> Log.d("WsServer", "ignored message type")
                 }
             }
         } catch (e: Exception) {

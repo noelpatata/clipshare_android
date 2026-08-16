@@ -3,11 +3,6 @@ package win.downops.clipshare.ws
 import win.downops.clipshare.certs.ClientTls
 import win.downops.clipshare.logs.Log
 import win.downops.clipshare.util.Constants
-import win.downops.clipshare.util.Protocol
-import win.downops.clipshare.util.parseClipboard
-import win.downops.clipshare.util.parseError
-import win.downops.clipshare.util.parseHello
-import win.downops.clipshare.util.parseType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -154,24 +149,21 @@ class WsClient(
             }
 
             override fun onMessage(socket: WebSocket, text: String) {
-                when (parseType(text)) {
-                    Constants.Protocol.Msg.HELLO -> {
-                        val name = parseHello(text)
-                        if (name != null) {
-                            Log.i("WsClient", "hello from $name")
-                            onConnected(name, host)
-                        }
+                when (val msg = ProtocolParser.parse(text)) {
+                    is ProtocolMessage.Hello -> {
+                        Log.i("WsClient", "hello from ${msg.name}")
+                        onConnected(msg.name, host)
                     }
-                    Constants.Protocol.Msg.CLIPBOARD -> {
-                        val c = parseClipboard(text)
-                        if (c != null && !c.isEmpty) onClipboard(c)
+                    is ProtocolMessage.Clipboard -> {
+                        if (!msg.clip.isEmpty) onClipboard(msg.clip)
                     }
-                    Constants.Protocol.Msg.PING -> socket.send(Protocol.pong())
-                    Constants.Protocol.Msg.PONG -> Unit
-                    Constants.Protocol.Msg.ERROR -> parseError(text)?.let {
-                        Log.e("WsClient", "daemon error: ${it.msg}")
-                        onError(it.msg)
+                    ProtocolMessage.Ping -> socket.send(Protocol.pong())
+                    ProtocolMessage.Pong -> Unit
+                    is ProtocolMessage.Error -> {
+                        Log.e("WsClient", "daemon error: ${msg.error.msg}")
+                        onError(msg.error.msg)
                     }
+                    ProtocolMessage.Unknown -> Unit
                 }
             }
 

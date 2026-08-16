@@ -2,7 +2,6 @@ package win.downops.clipshare.ui
 
 import android.content.Context
 import android.content.Intent
-import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -26,6 +25,7 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -42,13 +42,14 @@ import win.downops.clipshare.certs.CertStore
 import win.downops.clipshare.certs.ClientCertInfo
 import win.downops.clipshare.certs.ServerCertManager
 import win.downops.clipshare.certs.TrustedCaInfo
+import win.downops.clipshare.logs.LogStore
 import win.downops.clipshare.settings.Prefs
 import win.downops.clipshare.settings.WhitelistEntry
 import win.downops.clipshare.state.AppState
 import win.downops.clipshare.util.Constants
 
 @Composable
-fun SettingsScreen(context: Context, onBack: () -> Unit, onOpenLogs: () -> Unit) {
+fun SettingsScreen(context: Context, onBack: () -> Unit, registerSave: (() -> Unit) -> Unit) {
     var name by rememberSaveable { mutableStateOf(Prefs.deviceName(context)) }
     var appMode by rememberSaveable { mutableStateOf(Prefs.appMode(context)) }
 
@@ -73,7 +74,10 @@ fun SettingsScreen(context: Context, onBack: () -> Unit, onOpenLogs: () -> Unit)
     var serverTls by rememberSaveable { mutableStateOf(Prefs.serverTlsEnabled(context)) }
     var serverCertStatus by rememberSaveable { mutableStateOf(serverCertStatusText(context)) }
 
-    val accessibilityOn by remember { mutableStateOf(isAccessibilityEnabled(context)) }
+    // Diagnostics
+    var maxLogKb by rememberSaveable { mutableStateOf(Prefs.maxLogFileKb(context).toString()) }
+    var maxHistoryEntries by rememberSaveable { mutableStateOf(Prefs.maxHistoryEntries(context).toString()) }
+    var pollMs by rememberSaveable { mutableStateOf(Prefs.clipboardPollMs(context).toString()) }
 
     val clientCertPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
@@ -126,12 +130,20 @@ fun SettingsScreen(context: Context, onBack: () -> Unit, onOpenLogs: () -> Unit)
         Prefs.setTlsEnabled(context, tlsEnabled)
         Prefs.setConnectionMode(context, mode)
         Prefs.setWhitelist(context, whitelist.toList())
+        Prefs.setMaxLogFileKb(context, maxLogKb.toIntOrNull() ?: Constants.Log.DEFAULT_MAX_FILE_KB)
+        LogStore.setMaxLogFileKb(maxLogKb.toIntOrNull() ?: Constants.Log.DEFAULT_MAX_FILE_KB)
+        Prefs.setMaxHistoryEntries(context, maxHistoryEntries.toIntOrNull() ?: Constants.History.DEFAULT_MAX_ENTRIES)
+        Prefs.setClipboardPollMs(context, pollMs.toLongOrNull() ?: Constants.Clipboard.SYNC_POLL_MS)
         AppState.setAppMode(appMode)
         if (AppState.running.value) {
             AppState.stopSync(context)
             AppState.startSync(context)
         }
         onBack()
+    }
+
+    LaunchedEffect(Unit) {
+        registerSave { save() }
     }
 
     Column(
@@ -170,6 +182,37 @@ fun SettingsScreen(context: Context, onBack: () -> Unit, onOpenLogs: () -> Unit)
                 shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
             ) { Text("Server") }
         }
+
+        Text(
+            "The log file and command history are trimmed to stay within these limits.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedTextField(
+            value = maxLogKb,
+            onValueChange = { maxLogKb = it.filter(Char::isDigit) },
+            label = { Text("Max log file size (KB)") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = maxHistoryEntries,
+            onValueChange = { maxHistoryEntries = it.filter(Char::isDigit) },
+            label = { Text("Max history entries") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = pollMs,
+            onValueChange = { pollMs = it.filter(Char::isDigit) },
+            label = { Text("Clipboard poll interval (ms)") },
+            supportingText = { Text("How often the clipboard is re-checked. Lower = more responsive, higher = less battery. Clamped to 200-10000.") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth(),
+        )
 
         // Client settings
         if (appMode == Prefs.APP_MODE_CLIENT) {
@@ -398,38 +441,6 @@ fun SettingsScreen(context: Context, onBack: () -> Unit, onOpenLogs: () -> Unit)
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Share CA certificate") }
         }
-
-        // Background capture
-        SettingsSectionTitle("Background capture")
-        Text(
-            if (accessibilityOn) "Enabled - copies from any app sync to peers"
-            else "Disabled. Android 10+ hides the clipboard from background apps; an accessibility service lets ClipShare capture copies from other apps.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        OutlinedButton(
-            onClick = {
-                context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            },
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text(if (accessibilityOn) "Accessibility settings" else "Enable background capture") }
-
-        // Diagnostics
-        SettingsSectionTitle("Diagnostics")
-        Text(
-            "View recent app logs to troubleshoot connection or clipboard issues.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        OutlinedButton(
-            onClick = onOpenLogs,
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("View logs") }
-
-        Button(
-            onClick = { save() },
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("Save") }
     }
 }
 
@@ -478,13 +489,4 @@ private fun serverCertStatusText(context: Context): String {
 private fun copyToClipboard(context: Context, text: String) {
     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
     cm.setPrimaryClip(android.content.ClipData.newPlainText("ClipShare CA", text))
-}
-
-private fun isAccessibilityEnabled(context: Context): Boolean {
-    val expected = "${context.packageName}/${context.packageName}.accessibility.ClipShareAccessibilityService"
-    val enabled = Settings.Secure.getString(
-        context.contentResolver,
-        Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
-    ) ?: return false
-    return enabled.split(':').any { it.equals(expected, ignoreCase = true) }
 }

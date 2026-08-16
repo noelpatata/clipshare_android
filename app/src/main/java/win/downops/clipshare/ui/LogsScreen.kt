@@ -71,7 +71,7 @@ fun LogsScreen(context: Context) {
             style = MaterialTheme.typography.titleMedium,
         )
         Text(
-            "Last ${entries.size} log lines are kept. Long-press to select and copy.",
+            "Last ${entries.size} log lines are kept. Long-press to select, or Copy text for everything.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -100,9 +100,13 @@ fun LogsScreen(context: Context) {
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             OutlinedButton(
-                onClick = { LogStore.clear(context) },
+                onClick = { LogStore.clear() },
                 modifier = Modifier.weight(1f),
             ) { Text("Clear") }
+            Button(
+                onClick = { copyLogs(context) },
+                modifier = Modifier.weight(1f),
+            ) { Text("Copy text") }
             Button(
                 onClick = { shareLogs(context) },
                 modifier = Modifier.weight(1f),
@@ -129,6 +133,13 @@ private fun rememberLogText(entries: List<LogStore.Entry>): AnnotatedString {
             }
         }
     }
+}
+
+private fun copyLogs(context: Context) {
+    val text = LogStore.shareText()
+    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+    cm.setPrimaryClip(android.content.ClipData.newPlainText("ClipShare logs", text))
+    android.widget.Toast.makeText(context, "Logs copied to clipboard", android.widget.Toast.LENGTH_SHORT).show()
 }
 
 private fun shareLogs(context: Context) {

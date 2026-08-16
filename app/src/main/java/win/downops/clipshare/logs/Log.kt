@@ -1,8 +1,8 @@
 package win.downops.clipshare.logs
 
-import android.content.Context
 import android.util.Log
 import win.downops.clipshare.BuildConfig
+import win.downops.clipshare.settings.Prefs
 import win.downops.clipshare.util.Constants
 
 /**
@@ -13,11 +13,8 @@ object Log {
 
     private const val MAX_MESSAGE_LENGTH = Constants.Log.MAX_MESSAGE_LENGTH
 
-    private lateinit var context: Context
-
-    fun init(ctx: Context) {
-        context = ctx.applicationContext
-        LogStore.loadFromFile(context)
+    fun init(ctx: android.content.Context) {
+        LogStore.init(ctx.applicationContext.cacheDir, Prefs.maxLogFileKb(ctx))
     }
 
     fun d(tag: String, msg: String) {
@@ -52,8 +49,7 @@ object Log {
     }
 
     private fun store(level: String, tag: String, msg: String) {
-        if (!::context.isInitialized) return
         val safe = if (msg.length > MAX_MESSAGE_LENGTH) msg.take(MAX_MESSAGE_LENGTH) + "…" else msg
-        LogStore.append(context, level, tag, safe)
+        LogStore.append(level, tag, safe)
     }
 }

@@ -53,6 +53,8 @@ object Constants {
 
     object Clipboard {
         const val SYNC_POLL_MS = 700L
+        const val MIN_POLL_MS = 200L
+        const val MAX_POLL_MS = 10_000L
     }
 
     object Mime {
@@ -77,12 +79,17 @@ object Constants {
     }
 
     object History {
-        const val MAX_ENTRIES = 50
+        const val DEFAULT_MAX_ENTRIES = 50
+        const val MIN_MAX_ENTRIES = 10
+        const val MAX_MAX_ENTRIES = 1000
     }
 
     object Log {
         const val MAX_ENTRIES = 500
         const val MAX_MESSAGE_LENGTH = 2000
+        const val DEFAULT_MAX_FILE_KB = 256
+        const val MIN_MAX_FILE_KB = 16
+        const val MAX_MAX_FILE_KB = 4096
     }
 
     object Notification {

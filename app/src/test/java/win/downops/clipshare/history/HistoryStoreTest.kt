@@ -10,6 +10,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import win.downops.clipshare.settings.Prefs
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
@@ -77,6 +78,29 @@ class HistoryStoreTest {
     fun returnsEmptyListForCorruptJson() {
         ctx.getSharedPreferences("clipshare_history", Context.MODE_PRIVATE)
             .edit().putString("entries", "{corrupt").commit()
+
+        assertEquals(emptyList<HistoryEntry>(), HistoryStore.load(ctx))
+    }
+
+    @Test
+    fun capsStoredEntriesAtConfiguredMax() {
+        Prefs.setMaxHistoryEntries(ctx, 20)
+        for (i in 0 until 30) {
+            HistoryStore.append(ctx, entry("entry-$i", from = "peer-$i"))
+        }
+
+        val loaded = HistoryStore.load(ctx)
+        assertEquals(20, loaded.size)
+        assertEquals("entry-29", loaded[0].text)
+        assertEquals("entry-10", loaded[19].text)
+    }
+
+    @Test
+    fun clearEmptiesStore() {
+        HistoryStore.append(ctx, entry("hello"))
+        HistoryStore.append(ctx, entry("world"))
+
+        HistoryStore.clear(ctx)
 
         assertEquals(emptyList<HistoryEntry>(), HistoryStore.load(ctx))
     }

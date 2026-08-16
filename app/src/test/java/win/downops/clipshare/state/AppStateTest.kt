@@ -11,6 +11,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import win.downops.clipshare.history.HistoryEntry
+import win.downops.clipshare.history.HistoryStore
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
@@ -160,6 +161,17 @@ class AppStateTest {
         AppState.onReceived(ctx, "two", "b")
 
         assertEquals(listOf("two", "one"), AppState.history.value.map { it.text })
+    }
+
+    @Test
+    fun clearHistoryClearsFlowAndStore() {
+        AppState.onReceived(ctx, "one", "a")
+        AppState.onReceived(ctx, "two", "b")
+
+        AppState.clearHistory(ctx)
+
+        assertEquals(emptyList<HistoryEntry>(), AppState.history.value)
+        assertEquals(emptyList<HistoryEntry>(), HistoryStore.load(ctx))
     }
 
     @Test

@@ -56,13 +56,26 @@ object AppState {
     var service: SyncService? = null
         private set
 
-    /** Last text the service wrote to the local clipboard (loop protection). */
+    /** True while the main activity is resumed. When foreground, ClipboardSync
+     * handles clipboard capture, so the accessibility service skips pushing to
+     * avoid duplicate sends. */
     @Volatile
-    var lastRemoteWritten: String? = null
+    var appInForeground = false
 
-    /** Last image bytes the service wrote to the local clipboard (loop protection). */
-    @Volatile
-    var lastRemoteWrittenImage: ByteArray? = null
+    private val _accessibilityConnected = MutableStateFlow(false)
+
+    /** True while the accessibility service reports itself connected. This can
+     * differ from the system setting (an app update silently drops the binding),
+     * so the UI can warn when capture is expected but not actually running. */
+    val accessibilityConnected: StateFlow<Boolean> = _accessibilityConnected.asStateFlow()
+
+    fun onAccessibilityConnected() {
+        _accessibilityConnected.value = true
+    }
+
+    fun onAccessibilityDisconnected() {
+        _accessibilityConnected.value = false
+    }
 
     fun startSync(ctx: Context) {
         _running.value = true
@@ -185,6 +198,11 @@ object AppState {
         _history.value = HistoryStore.load(ctx)
     }
 
+    fun clearHistory(ctx: Context) {
+        _history.value = emptyList()
+        HistoryStore.clear(ctx)
+    }
+
     fun setDiscovered(devices: List<DiscoveredDevice>) {
         _discovered.value = devices
     }
@@ -200,9 +218,9 @@ object AppState {
         _history.value = emptyList()
         _lastError.value = null
         _discovered.value = emptyList()
+        _accessibilityConnected.value = false
         service = null
-        lastRemoteWritten = null
-        lastRemoteWrittenImage = null
+        appInForeground = false
     }
 
     internal fun setRunningForTesting(running: Boolean) {

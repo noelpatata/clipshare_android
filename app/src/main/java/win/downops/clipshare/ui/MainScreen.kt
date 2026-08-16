@@ -21,12 +21,12 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -53,11 +53,12 @@ fun MainScreen(
     onPushText: (String) -> Unit,
     onConnectTo: (DiscoveredDevice) -> Unit,
     onToggle: () -> Unit,
-    onOpenSettings: () -> Unit,
+    onClearHistory: () -> Unit,
 ) {
     val running by AppState.running.collectAsState()
     val appMode by AppState.appMode.collectAsState()
     val connected by AppState.connected.collectAsState()
+    val connectedIp by AppState.connectedIp.collectAsState()
     val status by AppState.status.collectAsState()
     val serverName by AppState.serverName.collectAsState()
     val serverClientCount by AppState.serverClientCount.collectAsState()
@@ -99,21 +100,17 @@ fun MainScreen(
                     )
                 } else {
                     devices.forEach { device ->
-                        DeviceRow(device, onConnectTo)
+                        DeviceRow(device, connectedIp, connected, onConnectTo)
                     }
                 }
             }
         }
         item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    if (isServer) "Broadcast" else "Send",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f),
-                )
-                FilledTonalButton(onClick = onOpenSettings) { Text("Settings") }
-            }
+            Text(
+                if (isServer) "Broadcast" else "Send",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
@@ -132,7 +129,13 @@ fun MainScreen(
             ) { Text(if (isServer) "Broadcast to clients" else "Send to server") }
         }
         item {
-            Text("Recent", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Recent", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.weight(1f))
+                if (history.isNotEmpty()) {
+                    TextButton(onClick = onClearHistory) { Text("Clear") }
+                }
+            }
             if (history.isEmpty()) {
                 Text(
                     "Nothing yet.",
@@ -211,13 +214,26 @@ private fun StatusCard(
 }
 
 @Composable
-private fun DeviceRow(device: DiscoveredDevice, onConnect: (DiscoveredDevice) -> Unit) {
+private fun DeviceRow(
+    device: DiscoveredDevice,
+    connectedIp: String?,
+    connected: Boolean,
+    onConnect: (DiscoveredDevice) -> Unit,
+) {
+    val isCurrent = connected && device.host == connectedIp
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onConnect(device) },
+        modifier = if (isCurrent) {
+            Modifier.fillMaxWidth()
+        } else {
+            Modifier
+                .fillMaxWidth()
+                .clickable { onConnect(device) }
+        },
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+            containerColor = if (isCurrent)
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+            else
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
         ),
     ) {
         Row(
@@ -232,7 +248,16 @@ private fun DeviceRow(device: DiscoveredDevice, onConnect: (DiscoveredDevice) ->
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Text("Connect", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            if (isCurrent) {
+                Text(
+                    "Connected",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            } else {
+                Text("Connect", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            }
         }
     }
 }

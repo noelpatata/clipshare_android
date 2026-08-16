@@ -10,6 +10,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import win.downops.clipshare.settings.Prefs
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -24,12 +25,13 @@ class LogStoreTest {
     @Before
     fun setUp() {
         ctx = RuntimeEnvironment.getApplication()
-        LogStore.clear(ctx)
+        LogStore.init(ctx.cacheDir, Prefs.maxLogFileKb(ctx))
+        LogStore.clear()
     }
 
     @Test
     fun appendStoresEntryAndUpdatesFlow() {
-        LogStore.append(ctx, "INFO", "Test", "hello")
+        LogStore.append("INFO", "Test", "hello")
 
         val all = LogStore.getAll()
         assertEquals(1, all.size)
@@ -43,7 +45,7 @@ class LogStoreTest {
     @Test
     fun ringBufferCapsAtMaxEntries() {
         for (i in 0 until 520) {
-            LogStore.append(ctx, "DEBUG", "T", "msg-$i")
+            LogStore.append("DEBUG", "T", "msg-$i")
         }
 
         assertEquals(500, LogStore.getAll().size)
@@ -63,8 +65,8 @@ class LogStoreTest {
 
     @Test
     fun shareTextJoinsAllEntries() {
-        LogStore.append(ctx, "INFO", "T", "first")
-        LogStore.append(ctx, "WARN", "T", "second")
+        LogStore.append("INFO", "T", "first")
+        LogStore.append("WARN", "T", "second")
 
         val text = LogStore.shareText()
         val lines = text.lines()
@@ -75,8 +77,8 @@ class LogStoreTest {
 
     @Test
     fun clearEmptiesStore() {
-        LogStore.append(ctx, "INFO", "T", "x")
-        LogStore.clear(ctx)
+        LogStore.append("INFO", "T", "x")
+        LogStore.clear()
 
         assertEquals(emptyList<LogStore.Entry>(), LogStore.getAll())
         assertEquals(emptyList<LogStore.Entry>(), LogStore.flow.value)
@@ -85,10 +87,10 @@ class LogStoreTest {
 
     @Test
     fun loadFromFileRoundTripsEntries() {
-        LogStore.append(ctx, "INFO", "A", "alpha")
-        LogStore.append(ctx, "ERROR", "B", "bravo")
+        LogStore.append("INFO", "A", "alpha")
+        LogStore.append("ERROR", "B", "bravo")
 
-        LogStore.loadFromFile(ctx)
+        LogStore.loadFromFile()
 
         val loaded = LogStore.getAll()
         assertEquals(2, loaded.size)
@@ -110,7 +112,7 @@ class LogStoreTest {
         ).format()
         File(ctx.cacheDir, "clipshare_logs.txt").writeText("garbage line without level\n$good\n")
 
-        LogStore.loadFromFile(ctx)
+        LogStore.loadFromFile()
 
         val loaded = LogStore.getAll()
         assertEquals(1, loaded.size)
@@ -119,7 +121,24 @@ class LogStoreTest {
 
     @Test
     fun loadFromFileWithMissingFileIsNoOp() {
-        LogStore.loadFromFile(ctx)
+        LogStore.loadFromFile()
         assertEquals(emptyList<LogStore.Entry>(), LogStore.getAll())
+    }
+
+    @Test
+    fun fileIsTrimmedByConfiguredSizeBudget() {
+        Prefs.setMaxLogFileKb(ctx, 16)
+        LogStore.setMaxLogFileKb(16)
+        val message = "x".repeat(200)
+        for (i in 0 until 300) {
+            LogStore.append("INFO", "T", "msg-$i-$message")
+        }
+
+        val file = File(ctx.cacheDir, "clipshare_logs.txt")
+        assertTrue(file.length() <= 16 * 1024)
+        val lines = file.readLines()
+        // newest entries kept, oldest dropped
+        assertTrue(lines.last().contains("msg-299"))
+        assertTrue(lines.none { it.contains("msg-0-") })
     }
 }

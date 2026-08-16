@@ -12,6 +12,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -23,7 +24,7 @@ import kotlin.coroutines.coroutineContext
  * broadcast beacons. Used only when the app is in server mode.
  */
 class DiscoveryAdvertiser(
-    private val context: Context,
+    context: Context,
     private val beaconPort: Int,
 ) {
 
@@ -64,10 +65,8 @@ class DiscoveryAdvertiser(
             serviceName = name
             serviceType = Constants.Discovery.SERVICE_TYPE
             setPort(port)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                setAttribute("tls", tls.toString())
-                setAttribute("platform", Constants.Protocol.PLATFORM_ANDROID)
-            }
+            setAttribute("tls", tls.toString())
+            setAttribute("platform", Constants.Protocol.PLATFORM_ANDROID)
         }
 
         val listener = object : NsdManager.RegistrationListener {
@@ -97,7 +96,9 @@ class DiscoveryAdvertiser(
 
     private suspend fun sendBeacons(name: String, port: Int, tls: Boolean) {
         val sock = try {
-            DatagramSocket().apply { broadcast = true }
+            withContext(Dispatchers.IO) {
+                DatagramSocket().apply { broadcast = true }
+            }
         } catch (e: Exception) {
             Log.e("DiscoveryAdvertiser", "failed to create beacon socket", e)
             return
@@ -112,12 +113,16 @@ class DiscoveryAdvertiser(
             .toString()
             .toByteArray(Charsets.UTF_8)
 
-        val address = InetAddress.getByName(Constants.Discovery.BEACON_BROADCAST_ADDR)
+        val address = withContext(Dispatchers.IO) {
+            InetAddress.getByName(Constants.Discovery.BEACON_BROADCAST_ADDR)
+        }
         val packet = DatagramPacket(payload, payload.size, address, beaconPort)
 
         while (running) {
             try {
-                sock.send(packet)
+                withContext(Dispatchers.IO) {
+                    sock.send(packet)
+                }
             } catch (e: Exception) {
                 if (running) Log.w("DiscoveryAdvertiser", "beacon send failed: ${e.message}")
             }
