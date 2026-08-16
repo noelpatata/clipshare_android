@@ -8,7 +8,6 @@ import android.os.Handler
 import android.os.Looper
 import win.downops.clipshare.clipboard.ClipboardSender
 import win.downops.clipshare.logs.Log
-import win.downops.clipshare.util.Constants
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -44,26 +43,12 @@ class ClipboardReadActivity : Activity() {
         if (!handled.compareAndSet(false, true)) return
         handler.removeCallbacks(timeout)
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val clip = runCatching {
-            cm.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)
-        }.getOrNull()
-
-        when {
-            clip?.uri != null -> {
-                val mime = cm.primaryClip?.description?.getMimeType(0) ?: Constants.Mime.GENERIC
-                Log.i("Capture", "captured ${clip.uri} ($mime)")
-                ClipboardSender.sendImage(this, clip.uri, mime)
-            }
-            clip != null -> {
-                val text = runCatching { clip.coerceToText(this)?.toString() }.getOrNull()
-                if (!text.isNullOrBlank()) {
-                    Log.i("Capture", "captured text (${text.length} chars)")
-                    ClipboardSender.pushText(this, text)
-                } else {
-                    Log.d("Capture", "clipboard content could not be read")
-                }
-            }
-            else -> Log.d("Capture", "clipboard empty, nothing to capture")
+        val payload = ClipboardSender.payloadOf(this, cm.primaryClip)
+        if (payload != null) {
+            Log.i("Capture", "captured ${payload.fingerprint}")
+            payload.send(this)
+        } else {
+            Log.d("Capture", "clipboard empty, nothing to capture")
         }
         finish()
     }

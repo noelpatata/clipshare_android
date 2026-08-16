@@ -1,5 +1,6 @@
 package win.downops.clipshare.clipboard
 
+import android.content.ClipData
 import android.content.Context
 import android.net.Uri
 import win.downops.clipshare.logs.Log
@@ -15,6 +16,9 @@ import win.downops.clipshare.util.Constants
  * Centralizes the connected check, the byte-hash deduplication including loop
  * protection ([ClipboardDedup]), image compression, and the actual send — so
  * both capture paths behave identically.
+ *
+ * Use [payloadOf] to turn a [ClipData] into a [ClipPayload] without callers
+ * having to detect image vs. text themselves.
  */
 object ClipboardSender {
 
@@ -80,4 +84,38 @@ object ClipboardSender {
         }
         return AppState.service
     }
+
+    /**
+     * Detects whether the clip holds an image or text and returns a [ClipPayload]
+     * that knows how to send it, or null when there is nothing sendable. Callers
+     * no longer need to branch on `ClipData.Item.uri` themselves.
+     */
+    fun payloadOf(context: Context, clip: ClipData?): ClipPayload? {
+        if (clip == null || clip.itemCount == 0) return null
+        val item = clip.getItemAt(0)
+        return if (item.uri != null) {
+            val mime = clip.description.getMimeType(0) ?: Constants.Mime.GENERIC
+            ImagePayload(item.uri, mime)
+        } else {
+            val text = runCatching { item.coerceToText(context)?.toString() }.getOrNull()
+            if (text.isNullOrBlank()) null else TextPayload(text)
+        }
+    }
+}
+
+/** A clipboard payload (image or text) that knows how to send itself. */
+sealed interface ClipPayload {
+    /** Stable identity used to deduplicate unchanged clipboard content. */
+    val fingerprint: String
+    fun send(context: Context): Boolean
+}
+
+private class TextPayload(private val text: String) : ClipPayload {
+    override val fingerprint get() = "text:$text"
+    override fun send(context: Context) = ClipboardSender.pushText(context, text)
+}
+
+private class ImagePayload(private val uri: Uri, private val mime: String) : ClipPayload {
+    override val fingerprint get() = "uri:$uri"
+    override fun send(context: Context) = ClipboardSender.sendImage(context, uri, mime)
 }

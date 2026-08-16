@@ -4,7 +4,6 @@ import android.content.ClipboardManager
 import android.content.Context
 import win.downops.clipshare.logs.Log
 import win.downops.clipshare.settings.Prefs
-import win.downops.clipshare.util.Constants
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -70,25 +69,11 @@ object ClipboardSync {
 
     @Synchronized
     private fun handleChange(context: Context, cm: ClipboardManager) {
-        val clip = cm.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0) ?: return
-
-        if (clip.uri != null) {
-            // Poll loop runs every 700 ms; keep it quiet while the clip is unchanged.
-            val key = "uri:${clip.uri}"
-            if (key == lastSeenKey) return
-            lastSeenKey = key
-            val mime = cm.primaryClip?.description?.getMimeType(0) ?: Constants.Mime.GENERIC
-            ClipboardSender.sendImage(context, clip.uri, mime)
-            return
-        }
-
-        val text = clip.coerceToText(context)?.toString() ?: return
-        if (text.isBlank()) return
-        val key = "text:$text"
-        if (key == lastSeenKey) return
-        lastSeenKey = key
-
-        ClipboardSender.pushText(context, text)
+        val payload = ClipboardSender.payloadOf(context, cm.primaryClip) ?: return
+        // Poll loop runs frequently; keep it quiet while the clip is unchanged.
+        if (payload.fingerprint == lastSeenKey) return
+        lastSeenKey = payload.fingerprint
+        payload.send(context)
     }
 
     private fun currentText(cm: ClipboardManager, context: Context): String? {
