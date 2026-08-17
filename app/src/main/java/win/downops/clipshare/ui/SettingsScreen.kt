@@ -9,13 +9,15 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -24,8 +26,10 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -41,6 +45,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.journeyapps.barcodescanner.CaptureActivity
 import win.downops.clipshare.certs.CertStore
 import win.downops.clipshare.certs.ClientCertInfo
@@ -451,16 +457,23 @@ fun SettingsScreen(context: Context, onBack: () -> Unit, registerSave: (() -> Un
 @Composable
 private fun ServerCaQrDialog(context: Context, onDismiss: () -> Unit) {
     val content = remember { QrCodes.serverCaContent(context) }
-    val bitmap = remember(content) { content?.let { QrCodes.encode(it, 480) } }
-    AlertDialog(
+    val bitmap = remember(content) { content?.let { QrCodes.encode(it, 1024) } }
+    Dialog(
         onDismissRequest = onDismiss,
-        title = { Text("Server CA QR") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    "Scan this QR with another ClipShare device in client mode to trust this server's CA.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            shape = MaterialTheme.shapes.large,
+            tonalElevation = 6.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+                .widthIn(max = 420.dp),
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(12.dp),
+            ) {
                 if (bitmap != null) {
                     Image(
                         bitmap = bitmap.asImageBitmap(),
@@ -470,12 +483,11 @@ private fun ServerCaQrDialog(context: Context, onDismiss: () -> Unit) {
                 } else {
                     Text("No server certificate generated yet.")
                 }
+                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = onDismiss) { Text("Done") }
             }
-        },
-        confirmButton = {
-            Button(onClick = onDismiss) { Text("Done") }
-        },
-    )
+        }
+    }
 }
 
 @Composable
