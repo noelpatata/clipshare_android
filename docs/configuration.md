@@ -39,17 +39,34 @@ to the device model (e.g. `Pixel 9`). Other devices see this name in their devic
 
 Changing the mode takes effect when you **Save**; if sync is running it is restarted automatically.
 
+---
+
+## Logging
+
 ### Max log file size (KB)
 
 Upper bound for the on-disk log file (default `256`, allowed `16`–`4096`). When appending a new log
 line would exceed the limit, the oldest lines are dropped to make room. The in-memory view is
 additionally capped at 500 lines.
 
+---
+
+## History
+
 ### Max history entries
 
 Upper bound for the local clipboard/command history (default `50`, allowed `10`–`1000`). The newest
 entries are kept; the oldest are dropped as new ones arrive. History is stored as JSON in the app's
 SharedPreferences and is independent of the log file.
+
+---
+
+## Clipboard
+
+### Clipboard poll interval (ms)
+
+How often the foreground clipboard watcher re-checks the clipboard (default `700`, clamped to
+`200`–`10000`). Lower is more responsive; higher uses less battery.
 
 ---
 
@@ -105,42 +122,68 @@ Each entry has an optional **Name** and an **IP**. Matching is on name *or* IP:
   that announces something different.
 - After a failed attempt the client waits ~1.5 s and advances to the next candidate.
 
-### TLS (wss)
+---
 
-Default **off**. Enables encrypted `wss://` connections. Requires a client certificate **or** a
-trusted CA to be imported, otherwise the connection is refused with a clear error.
+## TLS
 
-### Client certificates
+TLS settings for both roles live in one place.
 
-`.p12` files (as exported by the desktop daemon's `clipshare cert export`). The first imported
-certificate is used automatically for mutual TLS. You can label each one so it is easy to identify.
+### Client
 
-### Trusted CA certificates
+#### TLS (wss)
 
-`.crt` CA certificates to trust when connecting to Android servers or desktop daemons over TLS
-(used when no client certificate is present, or to verify a self-signed server CA).
+Default **off**. Enables encrypted `wss://` connections to desktop daemons or Android servers.
+Requires a client certificate **or** a trusted CA to be present, otherwise the connection is refused
+with a clear error.
+
+#### Verify hostname
+
+Default **on** (strict). When enabled, the server certificate's SANs must match the dialed
+address. Turn it off to verify the server certificate against the trusted CA only — hostname/IP-
+address matching is skipped, keeping connections working when a device moves to another wifi/DHCP
+network; there is no need to regenerate or re-import certificates when the LAN address changes.
+
+#### Client certificates
+
+`.p12` bundles (exported by the desktop daemon's `clipshare cert export`). The first imported
+certificate is used automatically for mutual TLS, and its CA is trusted automatically — there is no
+separate "trusted CA" list to maintain.
+
+Certificates can be imported two ways:
+
+- **Import .p12** — pick a `.p12` file from the device.
+- **Scan QR certificate** — scan the QR code shown by another ClipShare device (Android server mode)
+  or printed by the desktop daemon's `clipshare cert qr`. The QR encodes a compact gzip-compressed
+  certificate bundle (key + leaf, without the CA), a legacy `.p12` bundle, or a CA certificate; all
+  are accepted automatically. The app rebuilds the `.p12` locally.
+
+The CA is deliberately not bundled with device certificates so the QR stays small. Trust it once
+per server by scanning `clipshare cert qr --type ca` (or the Android server's CA QR), and it is
+stored in the trusted CA list.
 
 ---
 
-## Server settings
+### Server
 
 Shown when **App mode = Server**.
 
-### Server port
+#### Server port
 
 The port the built-in server listens on (`40403` by default). Clients must use the same port unless
 they learn it from a beacon.
 
-### TLS (wss)
+#### TLS (wss)
 
 Default **off**. When enabled, the app generates a local CA + server certificate pair, stores them
 in the app's key store, and serves `wss://` instead of `ws://`. Clients then need the CA
-certificate to trust the server.
+certificate to trust the server. The certificate is not bound to any particular LAN IP, so it
+keeps working across wifi/DHCP changes.
 
 - **Regenerate cert** — replaces the stored certificate pair (e.g. to rotate before expiry).
 - **Copy CA** — copies the CA certificate (PEM) to the clipboard so you can paste it into a file.
-- **Share CA** — sends the CA certificate to another app/device (e.g. to import as a Trusted CA on
-  a client).
+- **Share CA file** — sends the CA certificate to another app/device as a file.
+- **Show QR** — shows the CA certificate as a QR code; another ClipShare device in client mode can
+  scan it with **Scan QR certificate** to trust this server.
 
 > The server-side certificate password is fixed (`clipshare`) and used only to protect the local
 > PKCS#12 store; it is not a connection credential.
@@ -223,8 +266,10 @@ stops working.
 | Discovery | on |
 | Connection mode | Discover |
 | TLS (wss) | off |
+| Verify hostname | on |
 | Token | empty |
 | Max log file size | 256 KB (16–4096) |
 | Max history entries | 50 (10–1000) |
+| Clipboard poll interval | 700 ms (200–10000) |
 | Image payload budget | ~10 MB (internal) |
 | Background capture | off (opt-in) |

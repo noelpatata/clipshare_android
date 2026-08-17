@@ -5,11 +5,16 @@ import android.net.Uri
 import win.downops.clipshare.settings.Prefs
 import win.downops.clipshare.util.Constants
 import win.downops.clipshare.util.JsonList
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.security.KeyFactory
 import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
+import java.security.spec.PKCS8EncodedKeySpec
+import java.util.zip.GZIPInputStream
 import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManagerFactory
@@ -24,7 +29,6 @@ data class ClientTls(
 /** Metadata for an imported client PKCS#12 certificate. */
 data class ClientCertInfo(
     val id: String,
-    val label: String,
     val caSubject: String,
     val fingerprint: String,
 )
@@ -32,7 +36,6 @@ data class ClientCertInfo(
 /** Metadata for a trusted CA certificate. */
 data class TrustedCaInfo(
     val id: String,
-    val label: String,
     val subject: String,
     val fingerprint: String,
 )
@@ -51,6 +54,10 @@ object CertStore {
     private const val CLIENT_CERTS_DIR = "certs/clients"
     private const val TRUSTED_CA_DIR = "certs/trusted"
 
+    /** Wire version of the compact QR envelope from the desktop `cert qr`. */
+    private const val QR_FORMAT_VERSION = 0x02
+    private const val QR_FORMAT_VERSION_LEGACY = 0x01
+
     // ------------------------------------------------------------------
     // Client certificates
     // ------------------------------------------------------------------
@@ -64,14 +71,22 @@ object CertStore {
         return parseClientCerts(Prefs.clientCertsJson(context))
     }
 
-    /** Imports a client .p12 and optionally adds its CA to the trusted list. */
-    fun importClientP12(context: Context, uri: Uri, label: String): Boolean {
+    /** Imports a client .p12 from a content Uri. Its CA is auto-trusted. */
+    fun importClientP12(context: Context, uri: Uri): Boolean {
+        val bytes = try {
+            context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return false
+        } catch (_: Exception) {
+            return false
+        }
+        return importClientP12Bytes(context, bytes)
+    }
+
+    /** Imports a client .p12 from raw bytes (file picker or QR scan). */
+    fun importClientP12Bytes(context: Context, bytes: ByteArray): Boolean {
         val dest = File(context.filesDir, "$CLIENT_CERTS_DIR/${newId()}.p12")
         return try {
             dest.parentFile?.mkdirs()
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                dest.outputStream().use { output -> input.copyTo(output) }
-            } ?: return false
+            dest.writeBytes(bytes)
 
             val ks = loadP12(dest)
             if (ks.size() == 0) {
@@ -82,7 +97,6 @@ object CertStore {
             val (caSubject, fingerprint) = extractCaInfo(ks) ?: ("" to "")
             val info = ClientCertInfo(
                 id = dest.nameWithoutExtension,
-                label = label.ifBlank { "Client cert" },
                 caSubject = caSubject,
                 fingerprint = fingerprint,
             )
@@ -91,12 +105,7 @@ object CertStore {
             // Auto-trust the CA contained in this bundle.
             val ca = extractCaCertificate(ks)
             if (ca != null && !hasTrustedCa(context, fingerprint)) {
-                val pem = ca.toPem()
-                importTrustedCaFromPem(
-                    context,
-                    pem,
-                    label = "CA for ${info.label}",
-                )
+                importTrustedCaFromPem(context, ca.toPem())
             }
             true
         } catch (_: Exception) {
@@ -152,17 +161,17 @@ object CertStore {
         return parseTrustedCas(json)
     }
 
-    fun importTrustedCa(context: Context, uri: Uri, label: String): Boolean {
+    fun importTrustedCa(context: Context, uri: Uri): Boolean {
         return try {
             val pem = context.contentResolver.openInputStream(uri)?.use { it.reader().readText() }
                 ?: return false
-            importTrustedCaFromPem(context, pem, label)
+            importTrustedCaFromPem(context, pem)
         } catch (_: Exception) {
             false
         }
     }
 
-    fun importTrustedCaFromPem(context: Context, pem: String, label: String): Boolean {
+    fun importTrustedCaFromPem(context: Context, pem: String): Boolean {
         return try {
             val cert = parseCertificate(pem) ?: return false
             val fingerprint = sha256Fingerprint(cert) ?: return false
@@ -173,7 +182,6 @@ object CertStore {
 
             val info = TrustedCaInfo(
                 id = id,
-                label = label.ifBlank { cert.subjectDN.name },
                 subject = cert.subjectDN.name,
                 fingerprint = fingerprint,
             )
@@ -191,6 +199,107 @@ object CertStore {
 
     fun hasTrustedCa(context: Context, fingerprint: String): Boolean {
         return trustedCas(context).any { it.fingerprint.equals(fingerprint, ignoreCase = true) }
+    }
+
+    /**
+     * Imports a certificate from a QR scan. Supports a client PKCS#12 bundle
+     * ("clipshare-p12:...") or a CA certificate ("clipshare-ca:..."), both with
+     * unpadded base64 payloads, as produced by `clipshare cert qr` and the app's
+     * server-mode QR share.
+     */
+    fun importFromQrContent(context: Context, content: String): Boolean {
+        return when {
+            content.startsWith(QrCodes.P12_PREFIX) -> {
+                val bytes = decodeQrPayload(content.removePrefix(QrCodes.P12_PREFIX))
+                    ?: return false
+                if (isGzip(bytes)) {
+                    importCompactQrBytes(context, bytes)
+                } else {
+                    // Legacy QR payloads encoded the full PKCS#12 directly.
+                    importClientP12Bytes(context, bytes)
+                }
+            }
+            content.startsWith(QrCodes.CA_PREFIX) -> {
+                val pem = decodeQrPayload(content.removePrefix(QrCodes.CA_PREFIX))
+                    ?.toString(Charsets.UTF_8)
+                    ?: return false
+                importTrustedCaFromPem(context, pem)
+            }
+            else -> false
+        }
+    }
+
+    private fun isGzip(bytes: ByteArray): Boolean =
+        bytes.size >= 2 && bytes[0] == 0x1f.toByte() && bytes[1] == 0x8b.toByte()
+
+    /**
+     * Imports the compact QR bundle produced by `clipshare cert qr`: a gzipped
+     * envelope of the PKCS#8 key and leaf certificate (DER), optionally with the
+     * CA certificate in legacy bundles. The bundle is rebuilt as a PKCS#12 and
+     * passed through the normal import path so TLS uses the same store.
+     */
+    private fun importCompactQrBytes(context: Context, bytes: ByteArray): Boolean {
+        return try {
+            val body = GZIPInputStream(ByteArrayInputStream(bytes)).use { it.readBytes() }
+            var off = 0
+            if (off >= body.size) return false
+            val version = body[off++]
+            if (version != QR_FORMAT_VERSION.toByte() && version != QR_FORMAT_VERSION_LEGACY.toByte()) return false
+
+            fun u16(): Int? {
+                if (off + 2 > body.size) return null
+                val n = ((body[off].toInt() and 0xff) shl 8) or (body[off + 1].toInt() and 0xff)
+                off += 2
+                return n
+            }
+            fun segment(): ByteArray? {
+                val len = u16() ?: return null
+                if (off + len > body.size) return null
+                val seg = body.copyOfRange(off, off + len)
+                off += len
+                return seg
+            }
+
+            val keyDer = segment() ?: return false
+            val leafDer = segment() ?: return false
+            // Legacy (v1) bundles also carried the CA so one scan was enough.
+            val caDer = if (version == QR_FORMAT_VERSION_LEGACY.toByte()) segment() else null
+
+            val p12 = buildP12Bundle(keyDer, leafDer, caDer) ?: return false
+            importClientP12Bytes(context, p12)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun buildP12Bundle(keyDer: ByteArray, leafDer: ByteArray, caDer: ByteArray?): ByteArray? {
+        return try {
+            val key = KeyFactory.getInstance("EC").generatePrivate(PKCS8EncodedKeySpec(keyDer))
+            val cf = CertificateFactory.getInstance("X.509")
+            val leaf = cf.generateCertificate(ByteArrayInputStream(leafDer)) as? X509Certificate ?: return null
+            val ks = KeyStore.getInstance("PKCS12")
+            ks.load(null, null)
+            val chain = if (caDer != null) {
+                val ca = cf.generateCertificate(ByteArrayInputStream(caDer)) as? X509Certificate ?: return null
+                arrayOf(leaf, ca)
+            } else {
+                arrayOf(leaf)
+            }
+            ks.setKeyEntry("client", key, Constants.Pkcs12.PASSWORD.toCharArray(), chain)
+            val out = ByteArrayOutputStream()
+            ks.store(out, Constants.Pkcs12.PASSWORD.toCharArray())
+            out.toByteArray()
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun decodeQrPayload(raw: String): ByteArray? {
+        return try {
+            android.util.Base64.decode(raw, android.util.Base64.DEFAULT or android.util.Base64.NO_PADDING)
+        } catch (_: Exception) {
+            null
+        }
     }
 
     /**
@@ -248,6 +357,21 @@ object CertStore {
                     ks.getCertificate(alias)?.let { trustStore.setCertificateEntry(alias, it) }
                 }
             }
+            // Also trust every auto-imported CA (from other .p12 bundles and QR
+            // shares) so a client cert does not block Android server CAs.
+            var index = 0
+            trustedCas(context).forEach { ca ->
+                val file = File(context.filesDir, "$TRUSTED_CA_DIR/${ca.id}.crt")
+                if (file.exists()) {
+                    parseCertificate(file.readText())?.let { cert ->
+                        try {
+                            trustStore.setCertificateEntry("trusted-$index", cert)
+                            index++
+                        } catch (_: Exception) {
+                        }
+                    }
+                }
+            }
 
             val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
                 .apply { init(trustStore) }
@@ -275,7 +399,6 @@ object CertStore {
             val (caSubject, fingerprint) = extractCaInfo(ks) ?: ("" to "")
             val info = ClientCertInfo(
                 id = dest.nameWithoutExtension,
-                label = "Imported",
                 caSubject = caSubject,
                 fingerprint = fingerprint,
             )
@@ -300,7 +423,11 @@ object CertStore {
     }
 
     private fun extractCaCertificate(ks: KeyStore): X509Certificate? {
-        return extractCertificateChain(ks)?.lastOrNull()
+        // A bundle of only key+leaf has no CA to trust; treating the leaf as a
+        // CA would silently trust the wrong certificate.
+        val chain = extractCertificateChain(ks) ?: return null
+        if (chain.size < 2) return null
+        return chain.lastOrNull()
     }
 
     private fun extractCertificateChain(ks: KeyStore): Array<X509Certificate>? {
@@ -318,7 +445,6 @@ object CertStore {
     private fun parseClientCerts(json: String): List<ClientCertInfo> = JsonList.parse(json) {
         ClientCertInfo(
             id = it.optString("id"),
-            label = it.optString("label"),
             caSubject = it.optString("caSubject"),
             fingerprint = it.optString("fingerprint"),
         )
@@ -327,7 +453,6 @@ object CertStore {
     private fun parseTrustedCas(json: String): List<TrustedCaInfo> = JsonList.parse(json) {
         TrustedCaInfo(
             id = it.optString("id"),
-            label = it.optString("label"),
             subject = it.optString("subject"),
             fingerprint = it.optString("fingerprint"),
         )
@@ -336,7 +461,6 @@ object CertStore {
     private fun saveClientCerts(context: Context, list: List<ClientCertInfo>) {
         Prefs.setClientCertsJson(context, JsonList.build(list) { obj, it ->
             obj.put("id", it.id)
-                .put("label", it.label)
                 .put("caSubject", it.caSubject)
                 .put("fingerprint", it.fingerprint)
         })
@@ -345,7 +469,6 @@ object CertStore {
     private fun saveTrustedCas(context: Context, list: List<TrustedCaInfo>) {
         Prefs.setTrustedCasJson(context, JsonList.build(list) { obj, it ->
             obj.put("id", it.id)
-                .put("label", it.label)
                 .put("subject", it.subject)
                 .put("fingerprint", it.fingerprint)
         })

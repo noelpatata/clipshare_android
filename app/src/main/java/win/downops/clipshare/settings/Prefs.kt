@@ -39,6 +39,7 @@ object Prefs {
     private const val KEY_CLIPBOARD_POLL_MS = "clipboard_poll_ms"
     private const val KEY_CLIENT_CERTS = "client_certs"
     private const val KEY_TRUSTED_CAS = "trusted_cas"
+    private const val KEY_VERIFY_HOSTNAME = "verify_hostname"
 
     private fun prefs(ctx: Context) =
         ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -88,6 +89,8 @@ object Prefs {
 
     fun trustedCasJson(ctx: Context): String =
         prefs(ctx).getString(KEY_TRUSTED_CAS, "[]") ?: "[]"
+
+    fun verifyHostname(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_VERIFY_HOSTNAME, true)
 
     fun whitelist(ctx: Context): List<WhitelistEntry> {
         val raw = prefs(ctx).getString(KEY_WHITELIST, null) ?: return emptyList()
@@ -146,6 +149,9 @@ object Prefs {
 
     fun setTrustedCasJson(ctx: Context, value: String) =
         prefs(ctx).edit().putString(KEY_TRUSTED_CAS, value).apply()
+
+    fun setVerifyHostname(ctx: Context, value: Boolean) =
+        prefs(ctx).edit().putBoolean(KEY_VERIFY_HOSTNAME, value).apply()
 
     fun setWhitelist(ctx: Context, entries: List<WhitelistEntry>) {
         prefs(ctx).edit().putString(

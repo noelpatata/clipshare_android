@@ -1,12 +1,12 @@
 package win.downops.clipshare.ws
 
 import io.ktor.server.application.install
-import io.ktor.server.cio.CIO
 import io.ktor.server.engine.ApplicationEngine
 import io.ktor.server.engine.applicationEngineEnvironment
 import io.ktor.server.engine.connector
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.engine.sslConnector
+import io.ktor.server.netty.Netty
 import io.ktor.server.routing.routing
 import io.ktor.server.websocket.DefaultWebSocketServerSession
 import io.ktor.server.websocket.WebSockets
@@ -85,7 +85,8 @@ class WsServer(
             }
         }
 
-        server = embeddedServer(CIO, env).start(wait = false)
+        // Netty is required: the CIO engine does not support HTTPS connectors.
+        server = embeddedServer(Netty, env).start(wait = false)
     }
 
     fun stop() {

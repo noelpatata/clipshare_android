@@ -42,6 +42,7 @@ class PrefsTest {
         assertEquals(700L, Prefs.clipboardPollMs(ctx))
         assertEquals("[]", Prefs.clientCertsJson(ctx))
         assertEquals("[]", Prefs.trustedCasJson(ctx))
+        assertTrue("hostname verification should be strict by default", Prefs.verifyHostname(ctx))
         assertEquals(emptyList<WhitelistEntry>(), Prefs.whitelist(ctx))
     }
 
@@ -64,6 +65,7 @@ class PrefsTest {
         Prefs.setClipboardPollMs(ctx, 1200)
         Prefs.setClientCertsJson(ctx, """[{"alias":"c"}]""")
         Prefs.setTrustedCasJson(ctx, """[{"name":"ca"}]""")
+        Prefs.setVerifyHostname(ctx, false)
 
         assertEquals("Pixel 9", Prefs.deviceName(ctx))
         assertEquals(Prefs.APP_MODE_SERVER, Prefs.appMode(ctx))
@@ -82,6 +84,7 @@ class PrefsTest {
         assertEquals(1200L, Prefs.clipboardPollMs(ctx))
         assertEquals("""[{"alias":"c"}]""", Prefs.clientCertsJson(ctx))
         assertEquals("""[{"name":"ca"}]""", Prefs.trustedCasJson(ctx))
+        assertFalse("hostname verification should be off after setter", Prefs.verifyHostname(ctx))
     }
 
     @Test

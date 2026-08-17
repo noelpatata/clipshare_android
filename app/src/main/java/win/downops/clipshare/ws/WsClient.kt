@@ -19,6 +19,9 @@ import java.util.concurrent.TimeUnit
  * WebSocket client to the clipshare daemon with exponential-backoff reconnect.
  * Calls [onReconnecting] before each attempt so the UI can show state.
  * When [tls] is given, the connection is upgraded to TLS (wss).
+ * [verifyHostname] controls whether the server certificate must match the
+ * dialed host/IP SAN; it defaults to true (strict). Set false to trust the CA
+ * chain alone, which keeps certificates working across network changes.
  * [onConnectFailed] fires after every failed connect attempt; the caller uses
  * it to advance to the next whitelist candidate (no-op in discover mode).
  */
@@ -32,6 +35,7 @@ class WsClient(
     private val onReconnecting: (attempt: Int) -> Unit,
     private val onConnectFailed: () -> Unit,
     private val onError: (msg: String) -> Unit,
+    private val verifyHostname: Boolean = true,
 ) {
     private val host: String =
         url.substringAfter("//").substringBefore(":")
@@ -43,6 +47,13 @@ class WsClient(
             val t = tls
             if (t != null) {
                 sslSocketFactory(t.sslContext.socketFactory, t.trustManager)
+                if (!verifyHostname) {
+                    // Server certs bind the issuing device's current LAN IPs as
+                    // SANs, which break when a device joins another network
+                    // (DHCP/wifi change). The SSLContext above still validates
+                    // the chain; this only skips the hostname/IP-SAN comparison.
+                    hostnameVerifier { _, _ -> true }
+                }
             }
         }
         .build()

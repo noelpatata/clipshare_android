@@ -219,6 +219,7 @@ class ClientSyncMode(
                 Log.e("SyncService", "error: $msg")
                 AppState.onError(msg)
             },
+            verifyHostname = Prefs.verifyHostname(context),
         )
         return socket
     }

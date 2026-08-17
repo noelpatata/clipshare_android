@@ -52,6 +52,15 @@ android {
         buildConfig = true
     }
 
+    packaging {
+        resources {
+            excludes += "META-INF/INDEX.LIST"
+            excludes += "META-INF/DEPENDENCIES"
+            excludes += "META-INF/io.netty.versions.properties"
+            excludes += "META-INF/versions/**/module-info.class"
+        }
+    }
+
     testOptions {
         unitTests {
             isReturnDefaultValues = true
@@ -78,11 +87,13 @@ dependencies {
 
     val ktor = "2.3.12"
     implementation("io.ktor:ktor-server-core:$ktor")
-    implementation("io.ktor:ktor-server-cio:$ktor")
+    implementation("io.ktor:ktor-server-netty:$ktor")
     implementation("io.ktor:ktor-server-websockets:$ktor")
 
     implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
     implementation("org.bouncycastle:bcpkix-jdk18on:1.78.1")
+
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.16.1")

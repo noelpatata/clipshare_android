@@ -5,6 +5,7 @@ import android.content.Intent
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -34,14 +36,16 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.journeyapps.barcodescanner.CaptureActivity
 import win.downops.clipshare.certs.CertStore
 import win.downops.clipshare.certs.ClientCertInfo
+import win.downops.clipshare.certs.QrCodes
 import win.downops.clipshare.certs.ServerCertManager
-import win.downops.clipshare.certs.TrustedCaInfo
 import win.downops.clipshare.clipboard.ClipboardWriter
 import win.downops.clipshare.logs.LogStore
 import win.downops.clipshare.settings.Prefs
@@ -54,67 +58,68 @@ fun SettingsScreen(context: Context, onBack: () -> Unit, registerSave: (() -> Un
     var name by rememberSaveable { mutableStateOf(Prefs.deviceName(context)) }
     var appMode by rememberSaveable { mutableStateOf(Prefs.appMode(context)) }
 
-    // Client settings
+    // Connection settings
     var host by rememberSaveable { mutableStateOf(Prefs.serverHost(context)) }
     var port by rememberSaveable { mutableStateOf(Prefs.serverPort(context).toString()) }
     var token by rememberSaveable { mutableStateOf(Prefs.token(context)) }
     var autoConnect by rememberSaveable { mutableStateOf(Prefs.autoConnect(context)) }
     var discovery by rememberSaveable { mutableStateOf(Prefs.discoveryEnabled(context)) }
     var beaconPort by rememberSaveable { mutableStateOf(Prefs.discoveryBeaconPort(context).toString()) }
-    var tlsEnabled by rememberSaveable { mutableStateOf(Prefs.tlsEnabled(context)) }
     var mode by rememberSaveable { mutableStateOf(Prefs.connectionMode(context)) }
     val whitelist = remember {
         mutableStateListOf<WhitelistEntry>().apply { addAll(Prefs.whitelist(context)) }
     }
-    var clientCertLabel by rememberSaveable { mutableStateOf("") }
-    val clientCerts = remember { mutableStateListOf<ClientCertInfo>().apply { addAll(CertStore.clientCerts(context)) } }
-    val trustedCas = remember { mutableStateListOf<TrustedCaInfo>().apply { addAll(CertStore.trustedCas(context)) } }
 
-    // Server settings
+    // Clipboard / history / logging
+    var pollMs by rememberSaveable { mutableStateOf(Prefs.clipboardPollMs(context).toString()) }
+    var maxHistoryEntries by rememberSaveable { mutableStateOf(Prefs.maxHistoryEntries(context).toString()) }
+    var maxLogKb by rememberSaveable { mutableStateOf(Prefs.maxLogFileKb(context).toString()) }
+
+    // TLS: client
+    var tlsEnabled by rememberSaveable { mutableStateOf(Prefs.tlsEnabled(context)) }
+    var verifyHostname by rememberSaveable { mutableStateOf(Prefs.verifyHostname(context)) }
+    val clientCerts = remember { mutableStateListOf<ClientCertInfo>().apply { addAll(CertStore.clientCerts(context)) } }
+
+    // TLS: server
     var serverPort by rememberSaveable { mutableStateOf(Prefs.serverPort(context).toString()) }
     var serverTls by rememberSaveable { mutableStateOf(Prefs.serverTlsEnabled(context)) }
     var serverCertStatus by rememberSaveable { mutableStateOf(serverCertStatusText(context)) }
-
-    // Diagnostics
-    var maxLogKb by rememberSaveable { mutableStateOf(Prefs.maxLogFileKb(context).toString()) }
-    var maxHistoryEntries by rememberSaveable { mutableStateOf(Prefs.maxHistoryEntries(context).toString()) }
-    var pollMs by rememberSaveable { mutableStateOf(Prefs.clipboardPollMs(context).toString()) }
+    var showCaQr by rememberSaveable { mutableStateOf(false) }
 
     val clientCertPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
     ) { uri ->
         if (uri != null) {
-            val label = clientCertLabel.ifBlank { "Client cert" }
-            val ok = CertStore.importClientP12(context, uri, label)
+            val ok = CertStore.importClientP12(context, uri)
             if (ok) {
                 clientCerts.clear()
                 clientCerts.addAll(CertStore.clientCerts(context))
-                trustedCas.clear()
-                trustedCas.addAll(CertStore.trustedCas(context))
             }
             Toast.makeText(
                 context,
                 if (ok) "Certificate imported" else "Import failed",
                 Toast.LENGTH_LONG,
             ).show()
-            clientCertLabel = ""
         }
     }
 
-    val caPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri ->
-        if (uri != null) {
-            val ok = CertStore.importTrustedCa(context, uri, "Trusted CA")
-            if (ok) {
-                trustedCas.clear()
-                trustedCas.addAll(CertStore.trustedCas(context))
+    val qrScanner = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val content = result.data?.getStringExtra("SCAN_RESULT")
+            if (content != null) {
+                val ok = CertStore.importFromQrContent(context, content)
+                if (ok) {
+                    clientCerts.clear()
+                    clientCerts.addAll(CertStore.clientCerts(context))
+                }
+                Toast.makeText(
+                    context,
+                    if (ok) "Certificate imported from QR" else "QR code not recognized",
+                    Toast.LENGTH_LONG,
+                ).show()
             }
-            Toast.makeText(
-                context,
-                if (ok) "CA imported" else "CA import failed",
-                Toast.LENGTH_LONG,
-            ).show()
         }
     }
 
@@ -129,12 +134,13 @@ fun SettingsScreen(context: Context, onBack: () -> Unit, registerSave: (() -> Un
         Prefs.setDiscoveryEnabled(context, discovery)
         Prefs.setDiscoveryBeaconPort(context, beaconPort.toIntOrNull() ?: Constants.Discovery.DEFAULT_BEACON_PORT)
         Prefs.setTlsEnabled(context, tlsEnabled)
+        Prefs.setVerifyHostname(context, verifyHostname)
         Prefs.setConnectionMode(context, mode)
         Prefs.setWhitelist(context, whitelist.toList())
+        Prefs.setClipboardPollMs(context, pollMs.toLongOrNull() ?: Constants.Clipboard.SYNC_POLL_MS)
+        Prefs.setMaxHistoryEntries(context, maxHistoryEntries.toIntOrNull() ?: Constants.History.DEFAULT_MAX_ENTRIES)
         Prefs.setMaxLogFileKb(context, maxLogKb.toIntOrNull() ?: Constants.Log.DEFAULT_MAX_FILE_KB)
         LogStore.setMaxLogFileKb(maxLogKb.toIntOrNull() ?: Constants.Log.DEFAULT_MAX_FILE_KB)
-        Prefs.setMaxHistoryEntries(context, maxHistoryEntries.toIntOrNull() ?: Constants.History.DEFAULT_MAX_ENTRIES)
-        Prefs.setClipboardPollMs(context, pollMs.toLongOrNull() ?: Constants.Clipboard.SYNC_POLL_MS)
         AppState.setAppMode(appMode)
         if (AppState.running.value) {
             AppState.stopSync(context)
@@ -165,6 +171,41 @@ fun SettingsScreen(context: Context, onBack: () -> Unit, registerSave: (() -> Un
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
+        SettingsSectionTitle("Clipboard")
+        OutlinedTextField(
+            value = pollMs,
+            onValueChange = { pollMs = it.filter(Char::isDigit) },
+            label = { Text("Clipboard poll interval (ms)") },
+            supportingText = { Text("How often the clipboard is re-checked. Lower = more responsive, higher = less battery. Clamped to 200-10000.") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        // History
+        SettingsSectionTitle("History")
+        OutlinedTextField(
+            value = maxHistoryEntries,
+            onValueChange = { maxHistoryEntries = it.filter(Char::isDigit) },
+            label = { Text("Max history entries") },
+            supportingText = { Text("Older items are dropped to stay within this limit.") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        // Logging
+        SettingsSectionTitle("Logging")
+        OutlinedTextField(
+            value = maxLogKb,
+            onValueChange = { maxLogKb = it.filter(Char::isDigit) },
+            label = { Text("Max log file size (KB)") },
+            supportingText = { Text("The on-device log is trimmed to stay within this limit.") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth(),
+        )
+
         Text("App mode", style = MaterialTheme.typography.titleSmall)
         Text(
             "Choose whether this device connects to other servers or acts as one.",
@@ -184,40 +225,9 @@ fun SettingsScreen(context: Context, onBack: () -> Unit, registerSave: (() -> Un
             ) { Text("Server") }
         }
 
-        Text(
-            "The log file and command history are trimmed to stay within these limits.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        OutlinedTextField(
-            value = maxLogKb,
-            onValueChange = { maxLogKb = it.filter(Char::isDigit) },
-            label = { Text("Max log file size (KB)") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = maxHistoryEntries,
-            onValueChange = { maxHistoryEntries = it.filter(Char::isDigit) },
-            label = { Text("Max history entries") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = pollMs,
-            onValueChange = { pollMs = it.filter(Char::isDigit) },
-            label = { Text("Clipboard poll interval (ms)") },
-            supportingText = { Text("How often the clipboard is re-checked. Lower = more responsive, higher = less battery. Clamped to 200-10000.") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        // Client settings
+        // Connection (client mode)
         if (appMode == Prefs.APP_MODE_CLIENT) {
-            SettingsSectionTitle("Client settings")
+            SettingsSectionTitle("Connection")
             OutlinedTextField(
                 value = host,
                 onValueChange = { host = it },
@@ -307,87 +317,67 @@ fun SettingsScreen(context: Context, onBack: () -> Unit, registerSave: (() -> Un
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Add entry") }
             }
-
-            SwitchRow(
-                title = "TLS (wss)",
-                subtitle = "Requires a client certificate or trusted CA",
-                checked = tlsEnabled,
-                onCheckedChange = { tlsEnabled = it },
-            )
-
-            Text("Client certificates", style = MaterialTheme.typography.titleSmall)
-            Text(
-                "Used for mutual TLS with desktop servers. The first certificate is used automatically.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            clientCerts.forEach { cert ->
-                Row(
-                    Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(cert.label, style = MaterialTheme.typography.bodyMedium)
-                        Text(
-                            cert.caSubject,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    IconButton(onClick = {
-                        CertStore.deleteClientCert(context, cert.id)
-                        clientCerts.clear()
-                        clientCerts.addAll(CertStore.clientCerts(context))
-                    }) { Text("\u2715") }
-                }
-            }
-            OutlinedTextField(
-                value = clientCertLabel,
-                onValueChange = { clientCertLabel = it },
-                label = { Text("Certificate label") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedButton(
-                onClick = { clientCertPicker.launch("*/*") },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Import .p12") }
-
-            Text("Trusted CA certificates", style = MaterialTheme.typography.titleSmall)
-            Text(
-                "Trust these CAs when connecting to Android or desktop servers over TLS.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            trustedCas.forEach { ca ->
-                Row(
-                    Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(ca.label, style = MaterialTheme.typography.bodyMedium)
-                        Text(
-                            ca.subject,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    IconButton(onClick = {
-                        CertStore.deleteTrustedCa(context, ca.id)
-                        trustedCas.clear()
-                        trustedCas.addAll(CertStore.trustedCas(context))
-                    }) { Text("\u2715") }
-                }
-            }
-            OutlinedButton(
-                onClick = { caPicker.launch("*/*") },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Import CA .crt") }
         }
 
-        // Server settings
+        // TLS
+        SettingsSectionTitle("TLS")
+
+        Text("Client", style = MaterialTheme.typography.titleSmall)
+        Text(
+            "How this device connects to desktop daemons or Android servers.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        SwitchRow(
+            title = "TLS (wss)",
+            subtitle = "Requires a client certificate or trusted CA",
+            checked = tlsEnabled,
+            onCheckedChange = { tlsEnabled = it },
+        )
+        SwitchRow(
+            title = "Verify hostname",
+            subtitle = "Require the server certificate to match its address. Turn off to keep working after network changes",
+            checked = verifyHostname,
+            onCheckedChange = { verifyHostname = it },
+        )
+
+        Text("Client certificates", style = MaterialTheme.typography.titleSmall)
+        Text(
+            "Used for mutual TLS with desktop servers. The first certificate is used automatically; its CA is trusted automatically.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        clientCerts.forEach { cert ->
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(cert.caSubject, style = MaterialTheme.typography.bodyMedium)
+                }
+                IconButton(onClick = {
+                    CertStore.deleteClientCert(context, cert.id)
+                    clientCerts.clear()
+                    clientCerts.addAll(CertStore.clientCerts(context))
+                }) { Text("\u2715") }
+            }
+        }
+        OutlinedButton(
+            onClick = { clientCertPicker.launch("*/*") },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Import .p12") }
+        OutlinedButton(
+            onClick = { qrScanner.launch(Intent(context, CaptureActivity::class.java)) },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Scan QR certificate") }
+
         if (appMode == Prefs.APP_MODE_SERVER) {
-            SettingsSectionTitle("Server settings")
+            Text("Server", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "How this device presents itself to other ClipShare devices.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             OutlinedTextField(
                 value = serverPort,
                 onValueChange = { serverPort = it.filter(Char::isDigit) },
@@ -427,22 +417,65 @@ fun SettingsScreen(context: Context, onBack: () -> Unit, registerSave: (() -> Un
                     modifier = Modifier.weight(1f),
                 ) { Text("Copy CA") }
             }
-            OutlinedButton(
-                onClick = {
-                    val uri = ServerCertManager.getCaCertificateShareUri(context)
-                    if (uri != null) {
-                        val intent = Intent(Intent.ACTION_SEND).apply {
-                            type = "application/x-x509-ca-cert"
-                            putExtra(Intent.EXTRA_STREAM, uri)
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = {
+                        val uri = ServerCertManager.getCaCertificateShareUri(context)
+                        if (uri != null) {
+                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                type = "application/x-x509-ca-cert"
+                                putExtra(Intent.EXTRA_STREAM, uri)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            context.startActivity(Intent.createChooser(intent, "Share CA certificate"))
                         }
-                        context.startActivity(Intent.createChooser(intent, "Share CA certificate"))
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Share CA certificate") }
+                    },
+                    modifier = Modifier.weight(1f),
+                ) { Text("Share CA file") }
+                OutlinedButton(
+                    onClick = { showCaQr = true },
+                    modifier = Modifier.weight(1f),
+                ) { Text("Show QR") }
+            }
         }
     }
+
+    if (showCaQr) {
+        ServerCaQrDialog(
+            context = context,
+            onDismiss = { showCaQr = false },
+        )
+    }
+}
+
+@Composable
+private fun ServerCaQrDialog(context: Context, onDismiss: () -> Unit) {
+    val content = remember { QrCodes.serverCaContent(context) }
+    val bitmap = remember(content) { content?.let { QrCodes.encode(it, 480) } }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Server CA QR") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Scan this QR with another ClipShare device in client mode to trust this server's CA.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = "Server CA QR code",
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                } else {
+                    Text("No server certificate generated yet.")
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss) { Text("Done") }
+        },
+    )
 }
 
 @Composable

@@ -71,8 +71,11 @@ desktop daemon and several phones can all join the same server.
 - **Quick Settings tile** — toggle sync from the notification shade
 - **Manual connect** — fall back to entering a host and port by hand
 - **Clipboard history** — recent items are stored locally and shown in the app (clearable)
-- **Mutual TLS** — import the `.p12` the desktop exports (`clipshare cert export`) and sync over
-  `wss` with client certificates
+- **Mutual TLS** — import the `.p12` the desktop exports (`clipshare cert export`) or scan it as a
+  QR code (`clipshare cert qr`), and sync over `wss` with client certificates. A server phone can
+  share its CA via file or QR so other phones trust it in one scan. Hostname verification is on by
+  default; turn it off in Settings to trust the CA only, so connections keep working across
+  wifi/DHCP changes with no re-import.
 - **Whitelist mode** — mirrors the daemon's `connection.mode = "whitelist"`: no scanning, only the
   listed IPs, and the server identity is verified against the whitelist entry
 - **Background capture** — an accessibility service (optional, opt-in) lets copies made in *other
@@ -109,7 +112,9 @@ See [docs/configuration.md](docs/configuration.md) for every setting explained.
 
 The app talks to the daemon via WebSocket at `ws://<host>:40403/ws` (the port is discoverable from
 mDNS/beacons). When mutual TLS is enabled the URL becomes `wss://` and a client certificate is
-presented. Messages are JSON objects with a `type` and `data` field:
+presented. The server cert is validated against the imported CA; the dialed IP is not compared to
+the cert's SANs, so a device stays reachable after a network change. Messages are JSON objects
+with a `type` and `data` field:
 
 - `hello` — client announces itself on connect (`name`, `platform`, `version`)
 - `clipboard` — a text payload with `text`, `ts`, and `from`, or an image payload with `data`
