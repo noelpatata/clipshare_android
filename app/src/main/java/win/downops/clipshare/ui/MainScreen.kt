@@ -44,6 +44,7 @@ import win.downops.clipshare.history.HistoryEntry
 import win.downops.clipshare.settings.Prefs
 import win.downops.clipshare.state.AppState
 import win.downops.clipshare.state.DiscoveredDevice
+import win.downops.clipshare.util.HostUtil
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -56,6 +57,8 @@ fun MainScreen(
     onClearHistory: () -> Unit,
 ) {
     val running by AppState.running.collectAsState()
+    val starting by AppState.starting.collectAsState()
+    val stopping by AppState.stopping.collectAsState()
     val appMode by AppState.appMode.collectAsState()
     val connected by AppState.connected.collectAsState()
     val connectedIp by AppState.connectedIp.collectAsState()
@@ -75,7 +78,7 @@ fun MainScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            StatusCard(running, connected, status, serverName, serverClientCount, isServer, onToggle)
+            StatusCard(running, starting, stopping, connected, status, serverName, serverClientCount, isServer, onToggle)
         }
         item {
             if (error != null) {
@@ -153,6 +156,8 @@ fun MainScreen(
 @Composable
 private fun StatusCard(
     running: Boolean,
+    starting: Boolean,
+    stopping: Boolean,
     connected: Boolean,
     status: String,
     serverName: String?,
@@ -197,16 +202,28 @@ private fun StatusCard(
                         )
                     }
                 }
-                Switch(checked = running, onCheckedChange = { onToggle() }, modifier = Modifier.testTag("sync_switch"))
+                Switch(
+                    checked = running,
+                    onCheckedChange = { onToggle() },
+                    enabled = !starting && !stopping,
+                    modifier = Modifier.testTag("sync_switch"),
+                )
             }
-            if (running && !connected && !isServer) {
+            if (starting || stopping || (running && !connected && !isServer)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(top = 12.dp),
                 ) {
                     CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.width(8.dp))
-                    Text("Connecting...", style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        when {
+                            starting -> "Starting service..."
+                            stopping -> "Stopping service..."
+                            else -> "Connecting..."
+                        },
+                        style = MaterialTheme.typography.bodySmall
+                    )
                 }
             }
         }
@@ -243,7 +260,7 @@ private fun DeviceRow(
             Column(Modifier.weight(1f)) {
                 Text(device.name, style = MaterialTheme.typography.titleSmall)
                 Text(
-                    "${device.host}:${device.port}  (${device.source}${if (device.tls) " · TLS" else ""})",
+                    "${HostUtil.display(device.host)}:${device.port}  (${device.source}${if (device.tls) " · TLS" else ""})",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

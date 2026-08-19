@@ -7,6 +7,7 @@ import win.downops.clipshare.logs.Log
 import win.downops.clipshare.settings.Prefs
 import win.downops.clipshare.state.AppState
 import win.downops.clipshare.util.Constants
+import win.downops.clipshare.util.HostUtil
 import win.downops.clipshare.ws.Protocol
 import win.downops.clipshare.ws.WsClient
 import kotlinx.coroutines.CoroutineScope
@@ -83,7 +84,8 @@ class ClientSyncMode(
         }
         Log.i("SyncService", "starting discovery")
         val beaconPort = Prefs.discoveryBeaconPort(context)
-        val d = DiscoveryManager(context, beaconPort) { name, host, port, tls, _ ->
+        val ipVersion = Prefs.ipVersion(context)
+        val d = DiscoveryManager(context, beaconPort, ipVersion) { name, host, port, tls, _ ->
             Log.i("SyncService", "discovered $name at $host:$port (tls=$tls)")
             onDeviceFound(name, host, port, tls)
         }
@@ -129,20 +131,21 @@ class ClientSyncMode(
         verifyName: Boolean,
         persist: Boolean,
     ) {
+        val normalizedHost = HostUtil.normalize(host)
         synchronized(lock) {
-            if (currentHost == host && currentPort == port && currentTls == tls && ws != null) {
+            if (currentHost == normalizedHost && currentPort == port && currentTls == tls && ws != null) {
                 Log.d("SyncService", "already connected/connecting to $host:$port")
                 return
             }
-            currentHost = host
+            currentHost = normalizedHost
             currentPort = port
             currentTls = tls
             ws?.stop()
-            val socket = buildSocket(host, port, tls, verifyName)
+            val socket = buildSocket(normalizedHost, port, tls, verifyName)
             ws = socket
             if (socket != null) {
                 if (persist) {
-                    Prefs.setServerHost(context, host)
+                    Prefs.setServerHost(context, normalizedHost)
                     Prefs.setServerPort(context, port)
                 }
                 AppState.onConnecting()
@@ -237,7 +240,7 @@ class ClientSyncMode(
     /** Whitelist mode: connect to each whitelisted IP in turn. */
     private fun startWhitelistConnections() {
         whitelistCandidates = Prefs.whitelist(context).mapNotNull {
-            it.ip.trim().takeIf { ip -> ip.isNotBlank() }?.let { ip -> ip to Prefs.serverPort(context) }
+            it.ip.trim().takeIf { ip -> ip.isNotBlank() }?.let { ip -> HostUtil.normalize(ip) to Prefs.serverPort(context) }
         }
         whitelistIndex = 0
         if (whitelistCandidates.isEmpty()) {
@@ -270,7 +273,7 @@ class ClientSyncMode(
 
     private fun whitelistNameMatches(name: String): Boolean {
         val host = currentHost ?: return false
-        val entry = Prefs.whitelist(context).firstOrNull { it.ip == host }
+        val entry = Prefs.whitelist(context).firstOrNull { HostUtil.normalize(it.ip) == host }
             ?: return false
         return entry.name.isBlank() || entry.name == name
     }

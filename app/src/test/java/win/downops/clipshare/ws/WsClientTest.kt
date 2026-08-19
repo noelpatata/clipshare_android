@@ -144,6 +144,54 @@ class WsClientTest {
     }
 
     @Test
+    fun invalidUrlReportsErrorInsteadOfCrashing() {
+        val errors = LinkedBlockingQueue<String>()
+        val connectFailed = CountDownLatch(1)
+        val client = WsClient(
+            url = "ws://fe80::1%wlan0:40403/ws",
+            hello = Protocol.hello("android-test", "android", "1.0.0"),
+            tls = null,
+            onConnected = { _, _ -> },
+            onClipboard = {},
+            onDisconnected = { _ -> },
+            onReconnecting = { _ -> },
+            onConnectFailed = { connectFailed.countDown() },
+            onError = { errors.add(it) },
+        )
+        client.start()
+
+        assertTrue(connectFailed.await(15, TimeUnit.SECONDS))
+        val error = errors.await()
+        assertTrue("error should mention invalid address: $error", error.contains("invalid", ignoreCase = true))
+        client.stop()
+    }
+
+    @Test
+    fun repeatedStartAndStopDoesNotLeakThreads() {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse =
+                MockResponse().setResponseCode(200).setBody("not a websocket")
+        }
+        server.start()
+
+        val threadCountBefore = Thread.activeCount()
+        repeat(20) {
+            val client = buildClient()
+            client.start()
+            Thread.sleep(50)
+            client.stop()
+        }
+
+        // Give OkHttp a moment to tear down dispatcher threads.
+        Thread.sleep(500)
+        val threadCountAfter = Thread.activeCount()
+        assertTrue(
+            "thread count grew from $threadCountBefore to $threadCountAfter after repeated start/stop",
+            threadCountAfter <= threadCountBefore + 10,
+        )
+    }
+
+    @Test
     fun connectFailureInvokesReconnectingAndConnectFailed() {
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse =

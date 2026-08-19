@@ -36,6 +36,7 @@ import java.util.Collections
  */
 class WsServer(
     private val port: Int,
+    private val bindHost: String,
     private val deviceName: String,
     private val keyStore: KeyStore?,
     private val keyStorePassword: CharArray?,
@@ -75,12 +76,12 @@ class WsServer(
                     privateKeyPassword = { keyStorePassword },
                 ) {
                     this.port = this@WsServer.port
-                    this.host = "0.0.0.0"
+                    this.host = bindHost
                 }
             } else {
                 connector {
                     this.port = this@WsServer.port
-                    this.host = "0.0.0.0"
+                    this.host = bindHost
                 }
             }
         }

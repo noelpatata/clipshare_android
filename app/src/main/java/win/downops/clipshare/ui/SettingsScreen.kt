@@ -72,6 +72,7 @@ fun SettingsScreen(context: Context, onBack: () -> Unit, registerSave: (() -> Un
     var discovery by rememberSaveable { mutableStateOf(Prefs.discoveryEnabled(context)) }
     var beaconPort by rememberSaveable { mutableStateOf(Prefs.discoveryBeaconPort(context).toString()) }
     var mode by rememberSaveable { mutableStateOf(Prefs.connectionMode(context)) }
+    var ipVersion by rememberSaveable { mutableStateOf(Prefs.ipVersion(context)) }
     val whitelist = remember {
         mutableStateListOf<WhitelistEntry>().apply { addAll(Prefs.whitelist(context)) }
     }
@@ -89,6 +90,7 @@ fun SettingsScreen(context: Context, onBack: () -> Unit, registerSave: (() -> Un
     // TLS: server
     var serverPort by rememberSaveable { mutableStateOf(Prefs.serverPort(context).toString()) }
     var serverTls by rememberSaveable { mutableStateOf(Prefs.serverTlsEnabled(context)) }
+    var serverBindIpVersion by rememberSaveable { mutableStateOf(Prefs.serverBindIpVersion(context)) }
     var serverCertStatus by rememberSaveable { mutableStateOf(serverCertStatusText(context)) }
     var showCaQr by rememberSaveable { mutableStateOf(false) }
 
@@ -135,6 +137,7 @@ fun SettingsScreen(context: Context, onBack: () -> Unit, registerSave: (() -> Un
         Prefs.setServerHost(context, host)
         Prefs.setServerPort(context, port.toIntOrNull() ?: Constants.Discovery.DEFAULT_SERVER_PORT)
         Prefs.setServerTlsEnabled(context, serverTls)
+        Prefs.setServerBindIpVersion(context, serverBindIpVersion)
         Prefs.setToken(context, token)
         Prefs.setAutoConnect(context, autoConnect)
         Prefs.setDiscoveryEnabled(context, discovery)
@@ -142,6 +145,7 @@ fun SettingsScreen(context: Context, onBack: () -> Unit, registerSave: (() -> Un
         Prefs.setTlsEnabled(context, tlsEnabled)
         Prefs.setVerifyHostname(context, verifyHostname)
         Prefs.setConnectionMode(context, mode)
+        Prefs.setIpVersion(context, ipVersion)
         Prefs.setWhitelist(context, whitelist.toList())
         Prefs.setClipboardPollMs(context, pollMs.toLongOrNull() ?: Constants.Clipboard.SYNC_POLL_MS)
         Prefs.setMaxHistoryEntries(context, maxHistoryEntries.toIntOrNull() ?: Constants.History.DEFAULT_MAX_ENTRIES)
@@ -223,11 +227,13 @@ fun SettingsScreen(context: Context, onBack: () -> Unit, registerSave: (() -> Un
                 selected = appMode == Prefs.APP_MODE_CLIENT,
                 onClick = { appMode = Prefs.APP_MODE_CLIENT },
                 shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                modifier = Modifier.testTag("mode_client"),
             ) { Text("Client") }
             SegmentedButton(
                 selected = appMode == Prefs.APP_MODE_SERVER,
                 onClick = { appMode = Prefs.APP_MODE_SERVER },
                 shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                modifier = Modifier.testTag("mode_server"),
             ) { Text("Server") }
         }
 
@@ -291,6 +297,30 @@ fun SettingsScreen(context: Context, onBack: () -> Unit, registerSave: (() -> Un
                     onClick = { mode = Prefs.MODE_WHITELIST },
                     shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
                 ) { Text("Whitelist") }
+            }
+
+            Text("IP version", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "Filter discovered servers by address family. Manual entries are not filtered.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                SegmentedButton(
+                    selected = ipVersion == Prefs.IP_VERSION_ANY,
+                    onClick = { ipVersion = Prefs.IP_VERSION_ANY },
+                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
+                ) { Text("Any") }
+                SegmentedButton(
+                    selected = ipVersion == Prefs.IP_VERSION_IPV4,
+                    onClick = { ipVersion = Prefs.IP_VERSION_IPV4 },
+                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
+                ) { Text("IPv4") }
+                SegmentedButton(
+                    selected = ipVersion == Prefs.IP_VERSION_IPV6,
+                    onClick = { ipVersion = Prefs.IP_VERSION_IPV6 },
+                    shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3),
+                ) { Text("IPv6") }
             }
 
             if (mode == Prefs.MODE_WHITELIST) {
@@ -392,11 +422,35 @@ fun SettingsScreen(context: Context, onBack: () -> Unit, registerSave: (() -> Un
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth(),
             )
+            Text("Bind address", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "Choose whether the server listens on IPv4, IPv6, or the current default.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                SegmentedButton(
+                    selected = serverBindIpVersion == Prefs.IP_VERSION_ANY,
+                    onClick = { serverBindIpVersion = Prefs.IP_VERSION_ANY },
+                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
+                ) { Text("Any") }
+                SegmentedButton(
+                    selected = serverBindIpVersion == Prefs.IP_VERSION_IPV4,
+                    onClick = { serverBindIpVersion = Prefs.IP_VERSION_IPV4 },
+                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
+                ) { Text("IPv4") }
+                SegmentedButton(
+                    selected = serverBindIpVersion == Prefs.IP_VERSION_IPV6,
+                    onClick = { serverBindIpVersion = Prefs.IP_VERSION_IPV6 },
+                    shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3),
+                ) { Text("IPv6") }
+            }
             SwitchRow(
                 title = "TLS (wss)",
                 subtitle = "Generate a local CA + server certificate",
                 checked = serverTls,
                 onCheckedChange = { serverTls = it },
+                testTag = "server_tls",
             )
             Text(
                 serverCertStatus,
@@ -506,6 +560,7 @@ private fun SwitchRow(
     subtitle: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
+    testTag: String = title,
 ) {
     Row(
         Modifier.fillMaxWidth(),
@@ -519,7 +574,7 @@ private fun SwitchRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Switch(checked = checked, onCheckedChange = onCheckedChange, modifier = Modifier.testTag(title))
+        Switch(checked = checked, onCheckedChange = onCheckedChange, modifier = Modifier.testTag(testTag))
     }
 }
 

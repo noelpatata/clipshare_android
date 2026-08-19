@@ -6,6 +6,7 @@ import win.downops.clipshare.util.Constants
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
@@ -90,6 +91,13 @@ class WsClient(
         ws = null
         pending?.cancel()
         pending = null
+        
+        runCatching {
+            client.dispatcher.cancelAll()
+            client.connectionPool.evictAll()
+            client.dispatcher.executorService.shutdown()
+        }
+        scope.cancel()
     }
 
     /** Send clipboard text to the daemon. Returns false when not connected. */
@@ -143,7 +151,13 @@ class WsClient(
     private var backoff = INITIAL_BACKOFF
 
     private fun connectOnce(attempt: Int): Boolean {
-        val request = Request.Builder().url(url).build()
+        val request = try {
+            Request.Builder().url(url).build()
+        } catch (e: IllegalArgumentException) {
+            Log.e("WsClient", "invalid URL: $url (${e.message})")
+            onError("invalid server address: $url")
+            return false
+        }
         val ok = BooleanArray(1) { false }
         val lock = Object()
         val listener = object : WebSocketListener() {
@@ -209,7 +223,13 @@ class WsClient(
                 }
             }
         }
-        val socket = client.newWebSocket(request, listener)
+        val socket = try {
+            client.newWebSocket(request, listener)
+        } catch (e: Exception) {
+            Log.e("WsClient", "failed to create websocket: ${e.message}")
+            onError("failed to create websocket: ${e.message}")
+            return false
+        }
         pending = socket
         // Wait for the open callback so the backoff/attempt counter tracks failures.
         synchronized(lock) {

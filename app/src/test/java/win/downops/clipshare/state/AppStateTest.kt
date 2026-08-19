@@ -183,4 +183,40 @@ class AppStateTest {
         assertEquals(1, AppState.discovered.value.size)
         assertEquals("pc", AppState.discovered.value[0].name)
     }
+
+    @Test
+    fun rapidTogglesStayConsistent() {
+        repeat(20) {
+            AppState.startSync(ctx)
+            AppState.stopSync(ctx)
+        }
+
+        // Simulate the service finishing its async shutdown.
+        AppState.onServiceStopped()
+
+        assertTrue(!AppState.starting.value)
+        assertTrue(!AppState.stopping.value)
+        assertTrue(!AppState.running.value)
+        assertTrue(!AppState.connected.value)
+        assertEquals("Stopped", AppState.status.value)
+    }
+
+    @Test
+    fun startSyncIgnoresDuplicateRequestsWhileStarting() {
+        AppState.startSync(ctx)
+        AppState.startSync(ctx)
+        AppState.startSync(ctx)
+
+        assertTrue(AppState.starting.value)
+        assertTrue(AppState.running.value)
+    }
+
+    @Test
+    fun stopSyncIgnoresRequestsWhenAlreadyStopped() {
+        AppState.stopSync(ctx)
+        AppState.stopSync(ctx)
+
+        assertTrue(!AppState.starting.value)
+        assertTrue(!AppState.running.value)
+    }
 }

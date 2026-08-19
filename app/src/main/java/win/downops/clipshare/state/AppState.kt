@@ -25,6 +25,12 @@ object AppState {
     private val _running = MutableStateFlow(false)
     val running: StateFlow<Boolean> = _running.asStateFlow()
 
+    private val _starting = MutableStateFlow(false)
+    val starting: StateFlow<Boolean> = _starting.asStateFlow()
+
+    private val _stopping = MutableStateFlow(false)
+    val stopping: StateFlow<Boolean> = _stopping.asStateFlow()
+
     private val _appMode = MutableStateFlow(Prefs.APP_MODE_CLIENT)
     val appMode: StateFlow<String> = _appMode.asStateFlow()
 
@@ -78,6 +84,8 @@ object AppState {
     }
 
     fun startSync(ctx: Context) {
+        if (_starting.value || _running.value || _stopping.value) return
+        _starting.value = true
         _running.value = true
         _status.value = "Starting..."
         Log.i("AppState", "startSync")
@@ -85,8 +93,11 @@ object AppState {
     }
 
     fun stopSync(ctx: Context) {
+        if (!_running.value && !_starting.value) return
+        _stopping.value = true
+        _starting.value = false
         _running.value = false
-        _status.value = "Stopped"
+        _status.value = "Stopping..."
         _connected.value = false
         _serverName.value = null
         _connectedIp.value = null
@@ -101,12 +112,15 @@ object AppState {
 
     fun onServiceStarted(s: SyncService) {
         service = s
+        _starting.value = false
         _running.value = true
         Log.i("AppState", "service started")
     }
 
     fun onServiceStopped() {
         service = null
+        _starting.value = false
+        _stopping.value = false
         _running.value = false
         _connected.value = false
         _serverName.value = null
@@ -209,6 +223,8 @@ object AppState {
 
     internal fun resetForTesting() {
         _running.value = false
+        _starting.value = false
+        _stopping.value = false
         _appMode.value = Prefs.APP_MODE_CLIENT
         _connected.value = false
         _status.value = "Stopped"

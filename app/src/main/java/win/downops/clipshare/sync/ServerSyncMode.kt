@@ -51,8 +51,14 @@ class ServerSyncMode(
             return
         }
 
+        val bindHost = when (Prefs.serverBindIpVersion(context)) {
+            Prefs.IP_VERSION_IPV4 -> "0.0.0.0"
+            Prefs.IP_VERSION_IPV6 -> "::"
+            else -> "0.0.0.0"
+        }
         val server = WsServer(
             port = port,
+            bindHost = bindHost,
             deviceName = Prefs.deviceName(context),
             keyStore = keyStore,
             keyStorePassword = if (tls) Constants.Pkcs12.PASSWORD.toCharArray() else null,

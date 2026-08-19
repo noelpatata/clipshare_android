@@ -29,8 +29,19 @@ class SyncTileService : TileService() {
     @RequiresApi(Build.VERSION_CODES.Q)
     private fun updateTile() {
         val tile = qsTile ?: return
-        tile.state = if (AppState.running.value) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
-        tile.subtitle = if (AppState.connected.value) "Connected" else "Idle"
+        tile.state = when {
+            AppState.running.value -> Tile.STATE_ACTIVE
+            AppState.starting.value -> Tile.STATE_ACTIVE
+            AppState.stopping.value -> Tile.STATE_ACTIVE
+            else -> Tile.STATE_INACTIVE
+        }
+        tile.subtitle = when {
+            AppState.starting.value -> "Starting..."
+            AppState.stopping.value -> "Stopping..."
+            AppState.connected.value -> "Connected"
+            AppState.running.value -> "Idle"
+            else -> "Idle"
+        }
         tile.updateTile()
     }
 }

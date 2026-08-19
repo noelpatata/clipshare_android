@@ -11,6 +11,11 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.content.FileProvider
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import win.downops.clipshare.MainActivity
 import win.downops.clipshare.R
 import win.downops.clipshare.clipboard.ClipboardDedup
@@ -33,6 +38,7 @@ import java.io.File
 class SyncService : Service(), SyncEvents {
 
     private var mode: SyncMode? = null
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -51,7 +57,15 @@ class SyncService : Service(), SyncEvents {
             ClientSyncMode(this, this)
         }
         mode = m
-        m.start()
+        scope.launch {
+            try {
+                m.start()
+            } catch (e: Exception) {
+                Log.e("SyncService", "mode start failed", e)
+                AppState.onError("Service failed to start: ${e.message}")
+                stopSelf()
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -165,8 +179,16 @@ class SyncService : Service(), SyncEvents {
     }
 
     override fun onDestroy() {
-        mode?.stop()
+        val m = mode
         mode = null
+        scope.launch {
+            try {
+                m?.stop()
+            } catch (e: Exception) {
+                Log.e("SyncService", "mode stop failed", e)
+            }
+            scope.cancel()
+        }
         AppState.onServiceStopped()
         Log.i("SyncService", "onDestroy")
         super.onDestroy()

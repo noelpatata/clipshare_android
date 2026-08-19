@@ -63,14 +63,13 @@ class SettingsUiTest {
     // ------------------------------------------------------------------
 
     @Test
-    fun clientMode_showsClientSettingsAndTlsSwitch() {
+    fun clientMode_showsConnectionSettingsAndTlsSwitch() {
         setContent()
 
-        composeRule.onNodeWithText("Client settings").assertIsDisplayed()
+        composeRule.onNodeWithText("Connection").assertIsDisplayed()
         composeRule.onNodeWithText("Server (IP or hostname)").assertIsDisplayed()
         composeRule.onNodeWithText("Import .p12").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithTag("TLS (wss)").performScrollTo().assertIsDisplayed().assertIsOff()
-        composeRule.onNodeWithText("Server settings").assertDoesNotExist()
     }
 
     @Test
@@ -128,19 +127,18 @@ class SettingsUiTest {
     @Test
     fun serverMode_showsServerSettingsAndTlsSwitch() {
         setContent()
-        composeRule.onNodeWithText("Server").performClick()
+        composeRule.onNodeWithTag("mode_server").performClick()
 
-        composeRule.onNodeWithText("Server settings").assertIsDisplayed()
         composeRule.onNodeWithText("Regenerate cert").assertIsDisplayed()
-        composeRule.onNodeWithTag("TLS (wss)").performScrollTo().assertIsDisplayed().assertIsOff()
-        composeRule.onNodeWithText("Client settings").assertDoesNotExist()
+        composeRule.onNodeWithTag("server_tls").performScrollTo().assertIsDisplayed().assertIsOff()
+        composeRule.onNodeWithText("Server (IP or hostname)").assertDoesNotExist()
     }
 
     @Test
     fun serverMode_enablingTlsPersistsOnSave() {
         setContent()
-        composeRule.onNodeWithText("Server").performClick()
-        composeRule.onNodeWithTag("TLS (wss)").performScrollTo().performClick().assertIsOn()
+        composeRule.onNodeWithTag("mode_server").performClick()
+        composeRule.onNodeWithTag("server_tls").performScrollTo().performClick().assertIsOn()
         clickSave()
 
         assertTrue(Prefs.serverTlsEnabled(context))
@@ -150,7 +148,7 @@ class SettingsUiTest {
     @Test
     fun serverMode_tlsDisabledByDefaultOnSave() {
         setContent()
-        composeRule.onNodeWithText("Server").performClick()
+        composeRule.onNodeWithTag("mode_server").performClick()
         clickSave()
 
         assertFalse(Prefs.serverTlsEnabled(context))
@@ -158,13 +156,13 @@ class SettingsUiTest {
     }
 
     @Test
-    fun switchingBackToClientShowsClientSettingsAgain() {
+    fun switchingBackToClientShowsConnectionSettingsAgain() {
         setContent()
-        composeRule.onNodeWithText("Server").performClick()
-        composeRule.onNodeWithText("Server settings").assertIsDisplayed()
+        composeRule.onNodeWithTag("mode_server").performClick()
+        composeRule.onNodeWithText("Regenerate cert").assertIsDisplayed()
 
-        composeRule.onNodeWithText("Client").performClick()
-        composeRule.onNodeWithText("Client settings").assertIsDisplayed()
-        composeRule.onNodeWithText("Server settings").assertDoesNotExist()
+        composeRule.onNodeWithTag("mode_client").performClick()
+        composeRule.onNodeWithText("Connection").assertIsDisplayed()
+        composeRule.onNodeWithText("Regenerate cert").assertDoesNotExist()
     }
 }

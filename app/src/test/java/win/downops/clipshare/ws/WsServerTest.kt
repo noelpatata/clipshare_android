@@ -68,6 +68,7 @@ class WsServerTest {
         val clientCounts = LinkedBlockingQueue<Int>()
         val server = WsServer(
             port = port,
+            bindHost = "127.0.0.1",
             deviceName = "android-server",
             keyStore = null,
             keyStorePassword = null,
@@ -101,7 +102,7 @@ class WsServerTest {
     @Test
     fun answersPingWithPong() {
         val port = findFreePort()
-        val server = WsServer(port, "android-server", null, null, onReceived = { _, _ -> }, onClientChange = {})
+        val server = WsServer(port, "127.0.0.1", "android-server", null, null, onReceived = { _, _ -> }, onClientChange = {})
         server.start()
         try {
             awaitListening(port)
@@ -125,6 +126,7 @@ class WsServerTest {
         val counts = LinkedBlockingQueue<Int>()
         val server = WsServer(
             port = port,
+            bindHost = "127.0.0.1",
             deviceName = "android-server",
             keyStore = null,
             keyStorePassword = null,
@@ -169,7 +171,7 @@ class WsServerTest {
     @Test
     fun broadcastImageRelaysBytes() {
         val port = findFreePort()
-        val server = WsServer(port, "android-server", null, null, onReceived = { _, _ -> }, onClientChange = {})
+        val server = WsServer(port, "127.0.0.1", "android-server", null, null, onReceived = { _, _ -> }, onClientChange = {})
         server.start()
         try {
             awaitListening(port)
@@ -193,9 +195,28 @@ class WsServerTest {
     }
 
     @Test
+    fun repeatedStartAndStopDoesNotCrash() {
+        val port = findFreePort()
+        val server = WsServer(
+            port = port,
+            bindHost = "127.0.0.1",
+            deviceName = "android-server",
+            keyStore = null,
+            keyStorePassword = null,
+            onReceived = { _, _ -> },
+            onClientChange = { _ -> },
+        )
+        repeat(10) {
+            server.start()
+            Thread.sleep(50)
+            server.stop()
+        }
+    }
+
+    @Test
     fun broadcastReturnsFalseWithNoClients() {
         val port = findFreePort()
-        val server = WsServer(port, "android-server", null, null, onReceived = { _, _ -> }, onClientChange = {})
+        val server = WsServer(port, "127.0.0.1", "android-server", null, null, onReceived = { _, _ -> }, onClientChange = {})
         server.start()
         try {
             awaitListening(port)

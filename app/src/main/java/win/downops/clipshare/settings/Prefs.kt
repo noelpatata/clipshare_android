@@ -19,6 +19,10 @@ object Prefs {
     const val APP_MODE_CLIENT = "client"
     const val APP_MODE_SERVER = "server"
 
+    const val IP_VERSION_ANY = "any"
+    const val IP_VERSION_IPV4 = "ipv4"
+    const val IP_VERSION_IPV6 = "ipv6"
+
     private const val FILE = "clipshare_prefs"
 
     private const val KEY_DEVICE_NAME = "device_name"
@@ -26,12 +30,14 @@ object Prefs {
     private const val KEY_SERVER_HOST = "server_host"
     private const val KEY_SERVER_PORT = "server_port"
     private const val KEY_SERVER_TLS_ENABLED = "server_tls_enabled"
+    private const val KEY_SERVER_BIND_IP_VERSION = "server_bind_ip_version"
     private const val KEY_TOKEN = "token"
     private const val KEY_AUTO_CONNECT = "auto_connect"
     private const val KEY_DISCOVERY = "discovery_enabled"
     private const val KEY_DISCOVERY_BEACON_PORT = "discovery_beacon_port"
     private const val KEY_TLS_ENABLED = "tls_enabled"
     private const val KEY_CONNECTION_MODE = "connection_mode"
+    private const val KEY_IP_VERSION = "ip_version"
     private const val KEY_WHITELIST = "whitelist"
     private const val KEY_MAX_IMAGE_PAYLOAD_KB = "max_image_payload_kb"
     private const val KEY_MAX_LOG_FILE_KB = "max_log_file_kb"
@@ -57,6 +63,11 @@ object Prefs {
 
     fun serverTlsEnabled(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_SERVER_TLS_ENABLED, false)
 
+    fun serverBindIpVersion(ctx: Context): String {
+        val value = prefs(ctx).getString(KEY_SERVER_BIND_IP_VERSION, IP_VERSION_ANY) ?: IP_VERSION_ANY
+        return if (value in setOf(IP_VERSION_ANY, IP_VERSION_IPV4, IP_VERSION_IPV6)) value else IP_VERSION_ANY
+    }
+
     fun token(ctx: Context): String = prefs(ctx).getString(KEY_TOKEN, "") ?: ""
 
     fun autoConnect(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_AUTO_CONNECT, true)
@@ -70,6 +81,11 @@ object Prefs {
 
     fun connectionMode(ctx: Context): String =
         prefs(ctx).getString(KEY_CONNECTION_MODE, MODE_DISCOVER) ?: MODE_DISCOVER
+
+    fun ipVersion(ctx: Context): String {
+        val value = prefs(ctx).getString(KEY_IP_VERSION, IP_VERSION_ANY) ?: IP_VERSION_ANY
+        return if (value in setOf(IP_VERSION_ANY, IP_VERSION_IPV4, IP_VERSION_IPV6)) value else IP_VERSION_ANY
+    }
 
     fun maxImagePayloadKb(ctx: Context): Int =
         prefs(ctx).getInt(KEY_MAX_IMAGE_PAYLOAD_KB, Constants.Image.DEFAULT_MAX_PAYLOAD_KB)
@@ -114,6 +130,9 @@ object Prefs {
     fun setServerTlsEnabled(ctx: Context, value: Boolean) =
         prefs(ctx).edit().putBoolean(KEY_SERVER_TLS_ENABLED, value).apply()
 
+    fun setServerBindIpVersion(ctx: Context, value: String) =
+        prefs(ctx).edit().putString(KEY_SERVER_BIND_IP_VERSION, value).apply()
+
     fun setToken(ctx: Context, value: String) =
         prefs(ctx).edit().putString(KEY_TOKEN, value.trim()).apply()
 
@@ -131,6 +150,9 @@ object Prefs {
 
     fun setConnectionMode(ctx: Context, value: String) =
         prefs(ctx).edit().putString(KEY_CONNECTION_MODE, value).apply()
+
+    fun setIpVersion(ctx: Context, value: String) =
+        prefs(ctx).edit().putString(KEY_IP_VERSION, value).apply()
 
     fun setMaxImagePayloadKb(ctx: Context, value: Int) =
         prefs(ctx).edit().putInt(KEY_MAX_IMAGE_PAYLOAD_KB, value.coerceIn(Constants.Image.MIN_MAX_PAYLOAD_KB, Constants.Image.MAX_MAX_PAYLOAD_KB)).apply()

@@ -7,9 +7,11 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import androidx.annotation.RequiresExtension
 import androidx.core.content.ContextCompat
+import win.downops.clipshare.logs.Log
 import win.downops.clipshare.state.AppState
 import win.downops.clipshare.state.DiscoveredDevice
 import win.downops.clipshare.util.Constants
+import win.downops.clipshare.util.HostUtil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -27,6 +29,7 @@ import java.net.InetAddress
 class DiscoveryManager(
     private val context: Context,
     private val beaconPort: Int,
+    private val ipVersion: String,
     private val onDeviceFound: (name: String, host: String, port: Int, tls: Boolean, source: String) -> Unit,
 ) {
 
@@ -72,13 +75,12 @@ class DiscoveryManager(
                         override fun onResolveFailed(info: NsdServiceInfo, errorCode: Int) {}
 
                         override fun onServiceResolved(info: NsdServiceInfo) {
-                            val host = info.host?.hostAddress ?: return
+                            val rawHost = info.host?.hostAddress ?: return
                             val port = info.port.takeIf { it != 0 } ?: Constants.Discovery.DEFAULT_SERVER_PORT
-                            val name = info.serviceName.ifBlank { host }
+                            val name = info.serviceName
                             val tls = (info.attributes?.get("tls")
                                 ?.let { String(it, Charsets.UTF_8) } == "true")
-                            add(name, host, port, tls, "mdns")
-                            onDeviceFound(name, host, port, tls, "mdns")
+                            reportDevice(name, rawHost, port, tls, "mdns")
                         }
                     }
                 )
@@ -112,16 +114,29 @@ class DiscoveryManager(
                 sock.receive(packet)
                 val json = String(packet.data, 0, packet.length)
                 val obj = JSONObject(json)
-                val name = obj.optString("name").ifBlank { Constants.Protocol.PLATFORM_DESKTOP }
+                val name = obj.optString("name")
                 val port = obj.optInt("port", Constants.Discovery.DEFAULT_SERVER_PORT)
                 val tls = obj.optBoolean("tls", false)
-                val host = packet.address.hostAddress ?: continue
-                add(name, host, port, tls, "beacon")
-                onDeviceFound(name, host, port, tls, "beacon")
+                val rawHost = packet.address.hostAddress ?: continue
+                reportDevice(name, rawHost, port, tls, "beacon")
             } catch (_: Exception) {
                 if (!running) return
             }
         }
+    }
+
+    private fun reportDevice(name: String, rawHost: String, port: Int, tls: Boolean, source: String) {
+        val host = HostUtil.normalize(rawHost)
+        if (host.isBlank()) return
+        if (!HostUtil.matchesIpVersion(host, ipVersion)) {
+            Log.d("DiscoveryManager", "skipping $host due to IP version preference $ipVersion")
+            return
+        }
+        val displayName = name.ifBlank { host }
+        val fallbackName = if (source == "beacon") Constants.Protocol.PLATFORM_DESKTOP else host
+        val resolvedName = displayName.ifBlank { fallbackName }
+        add(resolvedName, host, port, tls, source)
+        onDeviceFound(resolvedName, host, port, tls, source)
     }
 
     private fun add(name: String, host: String, port: Int, tls: Boolean, source: String) {
