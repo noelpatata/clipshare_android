@@ -18,7 +18,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import win.downops.clipshare.MainActivity
 import win.downops.clipshare.R
-import win.downops.clipshare.clipboard.ClipboardDedup
 import win.downops.clipshare.clipboard.ClipboardWriter
 import win.downops.clipshare.logs.Log
 import win.downops.clipshare.settings.Prefs
@@ -115,9 +114,9 @@ class SyncService : Service(), SyncEvents {
     }
 
     private fun writeClipboard(text: String) {
-        // Arm loop protection before making the content visible to listeners/polls.
-        ClipboardDedup.markRemoteWritten(text.toByteArray(Charsets.UTF_8))
-        ClipboardWriter.writeText(this, "clipshare", text)
+        // Label the clip as app-internal so capture paths skip it and we avoid
+        // echoing received content back to peers (and avoid duplicate history).
+        ClipboardWriter.writeText(this, Constants.Clipboard.INTERNAL_CLIP_LABEL, text)
     }
 
     private fun writeClipboardImage(bytes: ByteArray, mime: String) {
@@ -138,9 +137,9 @@ class SyncService : Service(), SyncEvents {
             return
         }
         val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
-        // Arm loop protection before making the content visible to listeners/polls.
-        ClipboardDedup.markRemoteWritten(bytes)
-        ClipboardWriter.writeImage(this, "clipshare image", uri)
+        // Label the clip as app-internal so capture paths skip it and we avoid
+        // echoing received content back to peers (and avoid duplicate history).
+        ClipboardWriter.writeImage(this, Constants.Clipboard.INTERNAL_CLIP_LABEL, uri)
         Log.i("SyncService", "wrote image to clipboard: ${file.name}")
     }
 

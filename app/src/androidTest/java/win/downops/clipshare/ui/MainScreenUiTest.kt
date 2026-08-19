@@ -1,5 +1,7 @@
 package win.downops.clipshare.ui
 
+import android.graphics.Bitmap
+import android.graphics.Color
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -16,14 +18,18 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import win.downops.clipshare.history.HistoryEntry
+import win.downops.clipshare.history.ClipItem
+import win.downops.clipshare.history.HistoryManager
 import win.downops.clipshare.settings.Prefs
 import win.downops.clipshare.state.AppState
 import win.downops.clipshare.state.DiscoveredDevice
+import win.downops.clipshare.util.Constants
+import java.io.ByteArrayOutputStream
 
 @RunWith(AndroidJUnit4::class)
 class MainScreenUiTest {
@@ -40,7 +46,10 @@ class MainScreenUiTest {
         pushedText = null
         connectedDevice = null
         toggled = 0
+        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
         AppState.resetForTesting()
+        HistoryManager.clear(ctx)
+        clearClipboard(ctx)
     }
 
     private fun setContent() {
@@ -52,6 +61,20 @@ class MainScreenUiTest {
                 onClearHistory = {},
             )
         }
+    }
+
+    private fun clearClipboard(ctx: android.content.Context) {
+        val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        cm.setPrimaryClip(android.content.ClipData.newPlainText("", ""))
+    }
+
+    private fun pngBytes(): ByteArray {
+        val bmp = Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888)
+        bmp.eraseColor(Color.BLUE)
+        return ByteArrayOutputStream().use { out ->
+            bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+            out.toByteArray()
+        }.also { bmp.recycle() }
     }
 
     // ------------------------------------------------------------------
@@ -221,6 +244,62 @@ class MainScreenUiTest {
         composeRule.runOnIdle {
             val clip = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
             assertEquals("copy me back", clip.primaryClip?.getItemAt(0)?.text)
+        }
+    }
+
+    @Test
+    fun tappingHistoryTextDoesNotDuplicateIt() {
+        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
+        AppState.setAppMode(Prefs.APP_MODE_CLIENT)
+        AppState.onReceived(ctx, "single entry", "laptop")
+        setContent()
+
+        composeRule.onNodeWithText("single entry").performClick()
+        composeRule.waitForIdle()
+
+        composeRule.runOnIdle {
+            val textEntries = AppState.history.value.filter { it.clip is ClipItem.Text }
+            assertEquals(1, textEntries.size)
+        }
+    }
+
+    @Test
+    fun imageHistoryEntryIsRenderedWithPreview() {
+        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
+        AppState.setAppMode(Prefs.APP_MODE_CLIENT)
+        AppState.onReceivedImage(ctx, pngBytes(), Constants.Mime.IMAGE_PNG, "laptop")
+        setContent()
+
+        composeRule.onNodeWithText("IMAGE RECEIVED from laptop").assertIsDisplayed()
+        composeRule.onNodeWithText("image/png", substring = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun tappingImageHistoryDoesNotDuplicateIt() {
+        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
+        AppState.setAppMode(Prefs.APP_MODE_CLIENT)
+        AppState.onReceivedImage(ctx, pngBytes(), Constants.Mime.IMAGE_PNG, "laptop")
+        setContent()
+
+        composeRule.onNodeWithText("IMAGE RECEIVED from laptop").performClick()
+        composeRule.waitForIdle()
+
+        composeRule.runOnIdle {
+            val imageEntries = AppState.history.value.filter { it.clip is ClipItem.Image }
+            assertEquals(1, imageEntries.size)
+        }
+    }
+
+    @Test
+    fun receivedImageDoesNotCreateSentDuplicate() {
+        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
+        AppState.setAppMode(Prefs.APP_MODE_CLIENT)
+        AppState.onReceivedImage(ctx, pngBytes(), Constants.Mime.IMAGE_PNG, "laptop")
+        setContent()
+
+        composeRule.runOnIdle {
+            val sent = AppState.history.value.filter { !it.incoming }
+            assertTrue("received image should not create a sent entry", sent.isEmpty())
         }
     }
 

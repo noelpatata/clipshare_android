@@ -89,9 +89,16 @@ object ClipboardSender {
      * Detects whether the clip holds an image or text and returns a [ClipPayload]
      * that knows how to send it, or null when there is nothing sendable. Callers
      * no longer need to branch on `ClipData.Item.uri` themselves.
+     *
+     * Clips written by the app itself (labelled [Constants.Clipboard.INTERNAL_CLIP_LABEL])
+     * are ignored so received content and history copy-back are not echoed back.
      */
     fun payloadOf(context: Context, clip: ClipData?): ClipPayload? {
         if (clip == null || clip.itemCount == 0) return null
+        if (clip.description.label?.toString() == Constants.Clipboard.INTERNAL_CLIP_LABEL) {
+            Log.d("Clipboard", "skipping internal clip")
+            return null
+        }
         val item = clip.getItemAt(0)
         return if (item.uri != null) {
             val mime = clip.description.getMimeType(0) ?: Constants.Mime.GENERIC

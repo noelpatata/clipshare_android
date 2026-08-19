@@ -1,5 +1,6 @@
 package win.downops.clipshare.ui.history
 
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -17,6 +18,8 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,6 +28,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import win.downops.clipshare.history.ClipItem
 import win.downops.clipshare.history.HistoryEntry
 import win.downops.clipshare.history.HistoryEntryProcessorFactory
@@ -108,18 +113,20 @@ private fun HistoryRowContent(entry: HistoryEntry) {
 private fun HistoryImagePreview(entry: HistoryEntry) {
     val context = LocalContext.current
     val provider = remember { DiskImageHistoryProvider(context) }
-    val bitmap = remember(entry.clip, entry.ts) {
-        val bytes = provider.loadPreview(entry) ?: return@remember null
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    val bitmap by produceState<Bitmap?>(initialValue = null, entry.clip, entry.ts) {
+        value = withContext(Dispatchers.IO) {
+            val bytes = provider.loadPreview(entry) ?: return@withContext null
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        }
     }
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        if (bitmap != null) {
+        bitmap?.let { bmp ->
             Image(
-                bitmap = bitmap.asImageBitmap(),
+                bitmap = bmp.asImageBitmap(),
                 contentDescription = "Image preview",
                 modifier = Modifier.size(64.dp),
             )

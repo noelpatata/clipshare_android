@@ -4,6 +4,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import win.downops.clipshare.logs.Log
 import win.downops.clipshare.settings.Prefs
+import win.downops.clipshare.util.Constants
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -79,7 +80,8 @@ object ClipboardPusher {
     }
 
     private fun currentText(cm: ClipboardManager, context: Context): String? {
-        return cm.primaryClip?.takeIf { it.itemCount > 0 }
-            ?.getItemAt(0)?.coerceToText(context)?.toString()
+        val clip = cm.primaryClip?.takeIf { it.itemCount > 0 } ?: return null
+        if (clip.description.label?.toString() == Constants.Clipboard.INTERNAL_CLIP_LABEL) return null
+        return clip.getItemAt(0).coerceToText(context)?.toString()
     }
 }

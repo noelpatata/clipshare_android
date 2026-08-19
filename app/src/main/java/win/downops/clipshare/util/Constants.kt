@@ -55,6 +55,13 @@ object Constants {
         const val SYNC_POLL_MS = 700L
         const val MIN_POLL_MS = 200L
         const val MAX_POLL_MS = 10_000L
+
+        /**
+         * Label used for clipboard items written by the app itself (received
+         * remote content, history copy-back). The capture paths skip clips with
+         * this label so the app does not echo its own writes back to peers.
+         */
+        const val INTERNAL_CLIP_LABEL = "clipshare_internal"
     }
 
     object Mime {
