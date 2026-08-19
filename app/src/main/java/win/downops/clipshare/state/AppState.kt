@@ -3,7 +3,7 @@ package win.downops.clipshare.state
 import android.content.Context
 import android.content.Intent
 import win.downops.clipshare.history.HistoryEntry
-import win.downops.clipshare.history.HistoryStore
+import win.downops.clipshare.history.HistoryManager
 import win.downops.clipshare.logs.Log
 import win.downops.clipshare.settings.Prefs
 import win.downops.clipshare.sync.SyncService
@@ -184,37 +184,58 @@ object AppState {
     }
 
     fun onReceived(ctx: Context, text: String, from: String) {
-        val entry = HistoryEntry(text = text, from = from.ifBlank { "remote" }, ts = System.currentTimeMillis(), incoming = true)
-        _history.value = listOf(entry) + _history.value
-        HistoryStore.append(ctx, entry)
-    }
-
-    fun onReceivedImage(ctx: Context, mime: String, size: Int, from: String) {
-        val entry = HistoryEntry(
-            text = "[image: $mime, ${size} bytes]",
-            from = from.ifBlank { "remote" },
-            ts = System.currentTimeMillis(),
+        val entry = HistoryManager.addText(
+            ctx = ctx,
+            text = text,
+            from = from,
             incoming = true,
-            isImage = true,
         )
         _history.value = listOf(entry) + _history.value
-        HistoryStore.append(ctx, entry)
+    }
+
+    fun onReceivedImage(ctx: Context, bytes: ByteArray, mime: String, from: String) {
+        val entry = HistoryManager.addImage(
+            ctx = ctx,
+            bytes = bytes,
+            mime = mime,
+            from = from,
+            incoming = true,
+        )
+        if (entry != null) {
+            _history.value = listOf(entry) + _history.value
+        }
     }
 
     fun onSent(ctx: Context, text: String) {
-        val name = Prefs.deviceName(ctx)
-        val entry = HistoryEntry(text = text, from = name, ts = System.currentTimeMillis(), incoming = false)
+        val entry = HistoryManager.addText(
+            ctx = ctx,
+            text = text,
+            from = Prefs.deviceName(ctx),
+            incoming = false,
+        )
         _history.value = listOf(entry) + _history.value
-        HistoryStore.append(ctx, entry)
+    }
+
+    fun onSentImage(ctx: Context, bytes: ByteArray, mime: String) {
+        val entry = HistoryManager.addImage(
+            ctx = ctx,
+            bytes = bytes,
+            mime = mime,
+            from = Prefs.deviceName(ctx),
+            incoming = false,
+        )
+        if (entry != null) {
+            _history.value = listOf(entry) + _history.value
+        }
     }
 
     fun loadHistory(ctx: Context) {
-        _history.value = HistoryStore.load(ctx)
+        _history.value = HistoryManager.load(ctx)
     }
 
     fun clearHistory(ctx: Context) {
         _history.value = emptyList()
-        HistoryStore.clear(ctx)
+        HistoryManager.clear(ctx)
     }
 
     fun setDiscovered(devices: List<DiscoveredDevice>) {

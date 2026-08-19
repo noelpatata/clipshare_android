@@ -21,7 +21,7 @@ object SyncSend {
 
     fun image(context: Context, mime: String, bytes: ByteArray, ok: Boolean) {
         if (ok) {
-            AppState.onSent(context, "[image: $mime, ${bytes.size} bytes]")
+            AppState.onSentImage(context, bytes, mime)
             Log.i("SyncService", "sent ${bytes.size} byte $mime image")
         } else {
             Log.w("SyncService", "sendImage failed (not connected?)")

@@ -44,9 +44,11 @@ class WsServerTest {
         throw AssertionError("server did not start listening on $port")
     }
 
-    private fun connect(port: Int, onMessage: (String) -> Unit): WebSocket {
+    private fun connect(port: Int, token: String? = null, onMessage: (String) -> Unit): WebSocket {
+        var url = "ws://127.0.0.1:$port${Constants.Protocol.WS_PATH}"
+        if (!token.isNullOrBlank()) url += "?token=$token"
         return OkHttpClient().newWebSocket(
-            Request.Builder().url("ws://127.0.0.1:$port${Constants.Protocol.WS_PATH}").build(),
+            Request.Builder().url(url).build(),
             object : WebSocketListener() {
                 override fun onMessage(webSocket: WebSocket, text: String) = onMessage(text)
 
@@ -192,6 +194,59 @@ class WsServerTest {
             server.stop()
         }
         assertEquals(emptyList<String>(), errors.toList())
+    }
+
+    @Test
+    fun rejectsConnectionWithWrongToken() {
+        val port = findFreePort()
+        val server = WsServer(
+            port = port,
+            bindHost = "127.0.0.1",
+            deviceName = "android-server",
+            keyStore = null,
+            keyStorePassword = null,
+            serverToken = "expected-token",
+            onReceived = { _, _ -> },
+            onClientChange = {},
+        )
+        server.start()
+        try {
+            awaitListening(port)
+            val messages = LinkedBlockingQueue<String>()
+            val client = connect(port, token = "wrong-token") { messages.add(it) }
+
+            // The server should close the socket; no hello should arrive.
+            assertNull("client with wrong token should not receive hello", messages.poll(500, TimeUnit.MILLISECONDS))
+            client.close(1000, "bye")
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun allowsConnectionWithCorrectToken() {
+        val port = findFreePort()
+        val server = WsServer(
+            port = port,
+            bindHost = "127.0.0.1",
+            deviceName = "android-server",
+            keyStore = null,
+            keyStorePassword = null,
+            serverToken = "expected-token",
+            onReceived = { _, _ -> },
+            onClientChange = {},
+        )
+        server.start()
+        try {
+            awaitListening(port)
+            val messages = LinkedBlockingQueue<String>()
+            val client = connect(port, token = "expected-token") { messages.add(it) }
+
+            assertEquals("android-server", ProtocolParser.parseHello(messages.await()))
+            client.close(1000, "bye")
+        } finally {
+            server.stop()
+        }
     }
 
     @Test

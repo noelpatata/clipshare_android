@@ -62,6 +62,7 @@ class ServerSyncMode(
             deviceName = Prefs.deviceName(context),
             keyStore = keyStore,
             keyStorePassword = if (tls) Constants.Pkcs12.PASSWORD.toCharArray() else null,
+            serverToken = Prefs.serverToken(context),
             onReceived = { from, clip ->
                 events.receive(clip)
                 broadcastReceived(clip, skipFrom = from)

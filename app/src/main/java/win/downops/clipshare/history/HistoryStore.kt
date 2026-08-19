@@ -1,19 +1,15 @@
 package win.downops.clipshare.history
 
 import android.content.Context
+import win.downops.clipshare.history.image.ImageHistoryStore
 import win.downops.clipshare.settings.Prefs
 import win.downops.clipshare.util.JsonList
 import androidx.core.content.edit
+import org.json.JSONObject
 
-data class HistoryEntry(
-    val text: String,
-    val from: String,
-    val ts: Long,
-    val incoming: Boolean,
-    val isImage: Boolean = false,
-)
-
-/** Persists recent clipboard history in SharedPreferences (newest first). */
+/** Persists recent clipboard history metadata in SharedPreferences (newest first).
+ *
+ * Image bytes are stored on disk via [ImageHistoryStore]; only metadata lives here. */
 object HistoryStore {
     private const val FILE = "clipshare_history"
     private const val KEY = "entries"
@@ -21,34 +17,40 @@ object HistoryStore {
     fun load(ctx: Context): List<HistoryEntry> {
         val raw = ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
             .getString(KEY, null) ?: return emptyList()
-        return JsonList.parse(raw) {
-            HistoryEntry(
-                text = it.optString("text"),
-                from = it.optString("from"),
-                ts = it.optLong("ts"),
-                incoming = it.optBoolean("incoming"),
-                isImage = it.optBoolean("isImage", false),
-            )
-        }
+        return JsonList.parse(raw) { historyEntryFromJson(it) }
+            .filterNotNull()
     }
 
     fun append(ctx: Context, entry: HistoryEntry) {
         val max = Prefs.maxHistoryEntries(ctx)
         val entries = (listOf(entry) + load(ctx)).take(max)
-        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
-            .edit {
-                putString(KEY, JsonList.build(entries) { obj, e ->
-                    obj.put("text", e.text)
-                        .put("from", e.from)
-                        .put("ts", e.ts)
-                        .put("incoming", e.incoming)
-                        .put("isImage", e.isImage)
-                })
-            }
+        save(ctx, entries)
     }
 
     fun clear(ctx: Context) {
         ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
             .edit { remove(KEY) }
+        ImageHistoryStore.clear(ctx)
     }
+
+    /** Replaces the stored list and deletes image files that are no longer referenced. */
+    fun save(ctx: Context, entries: List<HistoryEntry>) {
+        val retainedIds = entries.retainedImageIds()
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+            .edit {
+                putString(KEY, JsonList.build(entries) { obj, e ->
+                    val json = e.toJson()
+                    json.keys().forEach { key -> obj.put(key, json.get(key)) }
+                })
+            }
+        ImageHistoryStore.gc(ctx, retainedIds)
+    }
+
+    private fun List<HistoryEntry>.retainedImageIds(): Set<String> =
+        flatMapTo(mutableSetOf()) { entry ->
+            when (val clip = entry.clip) {
+                is ClipItem.Image -> listOf(clip.imageId, clip.previewId)
+                else -> emptyList()
+            }
+        }
 }

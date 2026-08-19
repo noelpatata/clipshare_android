@@ -14,19 +14,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -38,16 +34,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import win.downops.clipshare.history.HistoryEntry
 import win.downops.clipshare.settings.Prefs
 import win.downops.clipshare.state.AppState
 import win.downops.clipshare.state.DiscoveredDevice
+import win.downops.clipshare.ui.history.HistorySectionHeader
+import win.downops.clipshare.ui.history.historyItems
 import win.downops.clipshare.util.HostUtil
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 @Composable
 fun MainScreen(
@@ -132,13 +125,7 @@ fun MainScreen(
             ) { Text(if (isServer) "Broadcast to clients" else "Send to server") }
         }
         item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Recent", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.weight(1f))
-                if (history.isNotEmpty()) {
-                    TextButton(onClick = onClearHistory) { Text("Clear") }
-                }
-            }
+            HistorySectionHeader(history, onClearHistory)
             if (history.isEmpty()) {
                 Text(
                     "Nothing yet.",
@@ -147,9 +134,7 @@ fun MainScreen(
                 )
             }
         }
-        items(history.take(20)) { entry ->
-            HistoryRow(entry)
-        }
+        historyItems(history)
     }
 }
 
@@ -275,48 +260,6 @@ private fun DeviceRow(
             } else {
                 Text("Connect", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             }
-        }
-    }
-}
-
-@Composable
-private fun HistoryRow(entry: HistoryEntry) {
-    val ts = remember(entry.ts) {
-        SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(entry.ts))
-    }
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (entry.incoming)
-                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f)
-            else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
-        ),
-    ) {
-        Column(Modifier.padding(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    if (entry.incoming)
-                        (if (entry.isImage) "IMAGE RECEIVED from ${entry.from}" else "RECEIVED from ${entry.from}")
-                    else "SENT",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Spacer(Modifier.weight(1f))
-                Text(
-                    ts,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Spacer(Modifier.height(4.dp))
-            Text(
-                entry.text,
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-            )
         }
     }
 }

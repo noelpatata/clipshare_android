@@ -32,6 +32,7 @@ object Prefs {
     private const val KEY_SERVER_TLS_ENABLED = "server_tls_enabled"
     private const val KEY_SERVER_BIND_IP_VERSION = "server_bind_ip_version"
     private const val KEY_TOKEN = "token"
+    private const val KEY_SERVER_TOKEN = "server_token"
     private const val KEY_AUTO_CONNECT = "auto_connect"
     private const val KEY_DISCOVERY = "discovery_enabled"
     private const val KEY_DISCOVERY_BEACON_PORT = "discovery_beacon_port"
@@ -69,6 +70,8 @@ object Prefs {
     }
 
     fun token(ctx: Context): String = prefs(ctx).getString(KEY_TOKEN, "") ?: ""
+
+    fun serverToken(ctx: Context): String = prefs(ctx).getString(KEY_SERVER_TOKEN, "") ?: ""
 
     fun autoConnect(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_AUTO_CONNECT, true)
 
@@ -135,6 +138,9 @@ object Prefs {
 
     fun setToken(ctx: Context, value: String) =
         prefs(ctx).edit().putString(KEY_TOKEN, value.trim()).apply()
+
+    fun setServerToken(ctx: Context, value: String) =
+        prefs(ctx).edit().putString(KEY_SERVER_TOKEN, value.trim()).apply()
 
     fun setAutoConnect(ctx: Context, value: Boolean) =
         prefs(ctx).edit().putBoolean(KEY_AUTO_CONNECT, value).apply()

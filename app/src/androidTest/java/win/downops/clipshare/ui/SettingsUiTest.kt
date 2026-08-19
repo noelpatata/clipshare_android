@@ -156,6 +156,17 @@ class SettingsUiTest {
     }
 
     @Test
+    fun serverMode_savePersistsServerToken() {
+        setContent()
+        composeRule.onNodeWithTag("mode_server").performClick()
+        composeRule.onNode(hasSetTextAction() and hasText("Server token (optional)"))
+            .performTextReplacement("server-secret")
+        clickSave()
+
+        assertEquals("server-secret", Prefs.serverToken(context))
+    }
+
+    @Test
     fun switchingBackToClientShowsConnectionSettingsAgain() {
         setContent()
         composeRule.onNodeWithTag("mode_server").performClick()

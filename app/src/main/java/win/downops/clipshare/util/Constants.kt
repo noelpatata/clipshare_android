@@ -76,12 +76,26 @@ object Constants {
         const val JPEG_QUALITY_MIN = 30
         const val BASE64_OVERHEAD_FACTOR = 0.75
         const val DECODE_MAX_DIMENSION = 2048
+
+        // Preview shown in the history list.
+        const val PREVIEW_MAX_DIMENSION = 256
+        const val PREVIEW_QUALITY = 80
+        const val PREVIEW_MAX_PAYLOAD_KB = 64
     }
 
     object History {
         const val DEFAULT_MAX_ENTRIES = 50
         const val MIN_MAX_ENTRIES = 10
         const val MAX_MAX_ENTRIES = 1000
+        const val IMAGE_DIR = "clipshare_history_images"
+        const val PREVIEW_DIR = "clipshare_history_previews"
+    }
+
+    object Navigation {
+        const val MAIN = "main"
+        const val CAPTURE = "capture"
+        const val LOGS = "logs"
+        const val SETTINGS = "settings"
     }
 
     object Log {

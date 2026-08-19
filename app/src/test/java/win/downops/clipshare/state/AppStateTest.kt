@@ -1,6 +1,8 @@
 package win.downops.clipshare.state
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Color
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -10,6 +12,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import win.downops.clipshare.history.ClipItem
 import win.downops.clipshare.history.HistoryEntry
 import win.downops.clipshare.history.HistoryStore
 
@@ -128,7 +131,7 @@ class AppStateTest {
 
         val history = AppState.history.value
         assertEquals(1, history.size)
-        assertEquals("hello from desktop", history[0].text)
+        assertEquals("hello from desktop", (history[0].clip as ClipItem.Text).text)
         assertEquals("desktop", history[0].from)
         assertTrue(history[0].incoming)
         assertTrue(!history[0].isImage)
@@ -136,12 +139,23 @@ class AppStateTest {
 
     @Test
     fun onReceivedImagePrependsImageEntry() {
-        AppState.onReceivedImage(ctx, "image/png", 512, "desktop")
+        val bytes = pngBytes()
+        AppState.onReceivedImage(ctx, bytes, "image/png", "desktop")
 
         val history = AppState.history.value
         assertEquals(1, history.size)
-        assertEquals("[image: image/png, 512 bytes]", history[0].text)
         assertTrue(history[0].isImage)
+        val clip = history[0].clip as ClipItem.Image
+        assertEquals("image/png", clip.mime)
+    }
+
+    private fun pngBytes(): ByteArray {
+        val bmp = Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888)
+        bmp.eraseColor(Color.BLUE)
+        return java.io.ByteArrayOutputStream().use { out ->
+            bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+            out.toByteArray()
+        }.also { bmp.recycle() }
     }
 
     @Test
@@ -150,7 +164,7 @@ class AppStateTest {
 
         val history = AppState.history.value
         assertEquals(1, history.size)
-        assertEquals("local note", history[0].text)
+        assertEquals("local note", (history[0].clip as ClipItem.Text).text)
         assertTrue(!history[0].incoming)
         assertTrue(history[0].from.isNotBlank())
     }
@@ -160,7 +174,7 @@ class AppStateTest {
         AppState.onReceived(ctx, "one", "a")
         AppState.onReceived(ctx, "two", "b")
 
-        assertEquals(listOf("two", "one"), AppState.history.value.map { it.text })
+        assertEquals(listOf("two", "one"), AppState.history.value.map { (it.clip as ClipItem.Text).text })
     }
 
     @Test

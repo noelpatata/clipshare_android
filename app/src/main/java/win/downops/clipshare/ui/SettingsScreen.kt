@@ -89,6 +89,7 @@ fun SettingsScreen(context: Context, onBack: () -> Unit, registerSave: (() -> Un
 
     // TLS: server
     var serverPort by rememberSaveable { mutableStateOf(Prefs.serverPort(context).toString()) }
+    var serverToken by rememberSaveable { mutableStateOf(Prefs.serverToken(context)) }
     var serverTls by rememberSaveable { mutableStateOf(Prefs.serverTlsEnabled(context)) }
     var serverBindIpVersion by rememberSaveable { mutableStateOf(Prefs.serverBindIpVersion(context)) }
     var serverCertStatus by rememberSaveable { mutableStateOf(serverCertStatusText(context)) }
@@ -136,6 +137,7 @@ fun SettingsScreen(context: Context, onBack: () -> Unit, registerSave: (() -> Un
         Prefs.setAppMode(context, appMode)
         Prefs.setServerHost(context, host)
         Prefs.setServerPort(context, port.toIntOrNull() ?: Constants.Discovery.DEFAULT_SERVER_PORT)
+        Prefs.setServerToken(context, serverToken)
         Prefs.setServerTlsEnabled(context, serverTls)
         Prefs.setServerBindIpVersion(context, serverBindIpVersion)
         Prefs.setToken(context, token)
@@ -420,6 +422,14 @@ fun SettingsScreen(context: Context, onBack: () -> Unit, registerSave: (() -> Un
                 label = { Text("Server port") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = serverToken,
+                onValueChange = { serverToken = it },
+                label = { Text("Server token (optional)") },
+                supportingText = { Text("Clients must include this token as a query parameter to connect.") },
+                singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
             Text("Bind address", style = MaterialTheme.typography.titleSmall)

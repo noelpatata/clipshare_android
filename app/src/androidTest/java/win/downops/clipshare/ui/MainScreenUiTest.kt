@@ -211,6 +211,20 @@ class MainScreenUiTest {
     }
 
     @Test
+    fun tappingHistoryTextCopiesItBackToClipboard() {
+        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
+        AppState.setAppMode(Prefs.APP_MODE_CLIENT)
+        AppState.onReceived(ctx, "copy me back", "laptop")
+        setContent()
+
+        composeRule.onNodeWithText("copy me back").performClick()
+        composeRule.runOnIdle {
+            val clip = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            assertEquals("copy me back", clip.primaryClip?.getItemAt(0)?.text)
+        }
+    }
+
+    @Test
     fun errorCardIsShownWhenLastErrorSet() {
         AppState.setAppMode(Prefs.APP_MODE_CLIENT)
         AppState.onError("TLS handshake failed")

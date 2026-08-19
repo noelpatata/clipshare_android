@@ -103,7 +103,7 @@ class SyncService : Service(), SyncEvents {
         if (image != null) {
             Log.i("SyncService", "received ${image.size} byte ${clip.mime ?: "image"}")
             writeClipboardImage(image, clip.mime ?: Constants.Mime.IMAGE_PNG)
-            AppState.onReceivedImage(this, clip.mime ?: Constants.Mime.IMAGE_PNG, image.size, clip.from)
+            AppState.onReceivedImage(this, image, clip.mime ?: Constants.Mime.IMAGE_PNG, clip.from)
         } else {
             val text = clip.text
             if (text != null) {

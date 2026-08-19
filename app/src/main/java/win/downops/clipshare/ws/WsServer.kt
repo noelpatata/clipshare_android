@@ -40,6 +40,7 @@ class WsServer(
     private val deviceName: String,
     private val keyStore: KeyStore?,
     private val keyStorePassword: CharArray?,
+    private val serverToken: String = "",
     private val onReceived: (from: String, clip: Protocol.Clipboard) -> Unit,
     private val onClientChange: (count: Int) -> Unit,
 ) {
@@ -64,6 +65,11 @@ class WsServer(
                 }
                 routing {
                     webSocket(Constants.Protocol.WS_PATH) {
+                        if (!verifyToken(call.request.queryParameters["token"])) {
+                            Log.w("WsServer", "rejected connection: token mismatch")
+                            close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "invalid token"))
+                            return@webSocket
+                        }
                         handleSession(this)
                     }
                 }
@@ -183,6 +189,11 @@ class WsServer(
         val session: DefaultWebSocketServerSession,
         @Volatile var name: String,
     )
+
+    private fun verifyToken(provided: String?): Boolean {
+        if (serverToken.isBlank()) return true
+        return provided == serverToken
+    }
 
     companion object {
         private const val SERVER_KEY_ALIAS = "server"
