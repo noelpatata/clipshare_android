@@ -51,6 +51,11 @@ object Constants {
         const val RETRY_DELAY_MS = 1_500L
     }
 
+    object Network {
+        const val MIN_PORT = 1
+        const val MAX_PORT = 65535
+    }
+
     object Clipboard {
         const val SYNC_POLL_MS = 700L
         const val MIN_POLL_MS = 200L
@@ -92,7 +97,7 @@ object Constants {
 
     object History {
         const val DEFAULT_MAX_ENTRIES = 50
-        const val MIN_MAX_ENTRIES = 10
+        const val MIN_MAX_ENTRIES = 5
         const val MAX_MAX_ENTRIES = 1000
         const val IMAGE_DIR = "clipshare_history_images"
         const val PREVIEW_DIR = "clipshare_history_previews"
@@ -120,6 +125,15 @@ object Constants {
 
     object Pkcs12 {
         const val PASSWORD = "clipshare"
+    }
+
+    object Validation {
+        const val DEVICE_NAME_BLANK = "Device name cannot be blank"
+        const val HISTORY_ENTRIES_RANGE = "Max history entries must be between %d and %d"
+        const val LOG_FILE_SIZE_RANGE = "Max log file size must be between %d and %d KB"
+        const val CLIPBOARD_POLL_RANGE = "Clipboard poll interval must be between %d and %d ms"
+        const val IMAGE_PAYLOAD_RANGE = "Max image payload must be between %d and %d KB"
+        const val PORT_RANGE = "Port must be between %d and %d"
     }
 
     object App {

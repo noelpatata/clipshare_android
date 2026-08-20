@@ -67,16 +67,6 @@ fun LogsScreen(context: Context) {
             .fillMaxSize()
             .padding(16.dp),
     ) {
-        Text(
-            "Recent logs",
-            style = MaterialTheme.typography.titleMedium,
-        )
-        Text(
-            "Last ${entries.size} log lines are kept. Long-press to select, or Copy text for everything.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(12.dp))
         SelectionContainer(
             modifier = Modifier
                 .weight(1f)

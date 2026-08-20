@@ -6,7 +6,7 @@ import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -28,7 +28,7 @@ import win.downops.clipshare.state.AppState
 class SettingsUiTest {
 
     @get:Rule
-    val composeRule = createComposeRule()
+    val composeRule = createAndroidComposeRule<androidx.activity.ComponentActivity>()
 
     private lateinit var context: Context
     private var saveFn: (() -> Unit)? = null
@@ -129,7 +129,7 @@ class SettingsUiTest {
         setContent()
         composeRule.onNodeWithTag("mode_server").performClick()
 
-        composeRule.onNodeWithText("Regenerate cert").assertIsDisplayed()
+        composeRule.onNodeWithText("Regenerate cert").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithTag("server_tls").performScrollTo().assertIsDisplayed().assertIsOff()
         composeRule.onNodeWithText("Server (IP or hostname)").assertDoesNotExist()
     }
@@ -170,7 +170,7 @@ class SettingsUiTest {
     fun switchingBackToClientShowsConnectionSettingsAgain() {
         setContent()
         composeRule.onNodeWithTag("mode_server").performClick()
-        composeRule.onNodeWithText("Regenerate cert").assertIsDisplayed()
+        composeRule.onNodeWithText("Regenerate cert").performScrollTo().assertIsDisplayed()
 
         composeRule.onNodeWithTag("mode_client").performClick()
         composeRule.onNodeWithText("Connection").assertIsDisplayed()

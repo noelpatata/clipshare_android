@@ -1,18 +1,20 @@
 package win.downops.clipshare.ui
 
+import android.Manifest
 import android.content.Context
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
-import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.rule.GrantPermissionRule
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.RuleChain
 import org.junit.runner.RunWith
 import win.downops.clipshare.MainActivity
 import win.downops.clipshare.settings.Prefs
@@ -25,8 +27,11 @@ import win.downops.clipshare.state.AppState
 @RunWith(AndroidJUnit4::class)
 class MainActivityUiTest {
 
+    private val composeRule = createAndroidComposeRule<MainActivity>()
+    private val permissionRule = GrantPermissionRule.grant(Manifest.permission.POST_NOTIFICATIONS)
+
     @get:Rule
-    val composeRule = createAndroidComposeRule<MainActivity>()
+    val chain: RuleChain = RuleChain.outerRule(permissionRule).around(composeRule)
 
     private lateinit var context: Context
 
@@ -38,9 +43,9 @@ class MainActivityUiTest {
     }
 
     @Test
-    fun saveButtonIsDisabledOnMainScreen() {
+    fun saveButtonIsOnlyVisibleOnSettingsScreen() {
         composeRule.onNodeWithText("ClipShare").assertIsDisplayed()
-        composeRule.onNodeWithText("Save").assertIsNotEnabled()
+        composeRule.onNodeWithText("Save").assertDoesNotExist()
     }
 
     @Test

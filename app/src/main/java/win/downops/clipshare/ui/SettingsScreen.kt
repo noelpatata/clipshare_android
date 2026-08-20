@@ -55,6 +55,8 @@ import win.downops.clipshare.certs.ServerCertManager
 import win.downops.clipshare.clipboard.ClipboardWriter
 import win.downops.clipshare.logs.LogStore
 import win.downops.clipshare.settings.Prefs
+import win.downops.clipshare.settings.SettingsValidator
+import win.downops.clipshare.settings.ValidationResult
 import win.downops.clipshare.settings.WhitelistEntry
 import win.downops.clipshare.state.AppState
 import win.downops.clipshare.util.Constants
@@ -95,6 +97,14 @@ fun SettingsScreen(context: Context, onBack: () -> Unit, registerSave: (() -> Un
     var serverCertStatus by rememberSaveable { mutableStateOf(serverCertStatusText(context)) }
     var showCaQr by rememberSaveable { mutableStateOf(false) }
 
+    val deviceNameError = SettingsValidator.validateDeviceName(name)
+    val pollMsError = SettingsValidator.validateClipboardPollMs(pollMs.toLongOrNull())
+    val maxHistoryEntriesError = SettingsValidator.validateMaxHistoryEntries(maxHistoryEntries.toIntOrNull())
+    val maxLogKbError = SettingsValidator.validateMaxLogFileKb(maxLogKb.toIntOrNull())
+    val portError = SettingsValidator.validatePort(port.toIntOrNull())
+    val beaconPortError = SettingsValidator.validatePort(beaconPort.toIntOrNull())
+    val serverPortError = SettingsValidator.validatePort(serverPort.toIntOrNull())
+
     val clientCertPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
     ) { uri ->
@@ -133,6 +143,25 @@ fun SettingsScreen(context: Context, onBack: () -> Unit, registerSave: (() -> Un
     }
 
     fun save() {
+        val validationErrors = buildList {
+            add(SettingsValidator.validateDeviceName(name))
+            add(SettingsValidator.validateClipboardPollMs(pollMs.toLongOrNull()))
+            add(SettingsValidator.validateMaxHistoryEntries(maxHistoryEntries.toIntOrNull()))
+            add(SettingsValidator.validateMaxLogFileKb(maxLogKb.toIntOrNull()))
+            if (appMode == Prefs.APP_MODE_CLIENT) {
+                add(SettingsValidator.validatePort(port.toIntOrNull()))
+                add(SettingsValidator.validatePort(beaconPort.toIntOrNull()))
+            }
+            if (appMode == Prefs.APP_MODE_SERVER) {
+                add(SettingsValidator.validatePort(serverPort.toIntOrNull()))
+            }
+        }.filterIsInstance<ValidationResult.Invalid>()
+
+        if (validationErrors.isNotEmpty()) {
+            Toast.makeText(context, validationErrors.first().message, Toast.LENGTH_LONG).show()
+            return
+        }
+
         Prefs.setDeviceName(context, name)
         Prefs.setAppMode(context, appMode)
         Prefs.setServerHost(context, host)
@@ -172,14 +201,18 @@ fun SettingsScreen(context: Context, onBack: () -> Unit, registerSave: (() -> Un
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Settings", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-
         // General
         SettingsSectionTitle("General")
         OutlinedTextField(
             value = name,
             onValueChange = { name = it },
             label = { Text("Device name") },
+            supportingText = if (deviceNameError is ValidationResult.Invalid) {
+                { Text(deviceNameError.message) }
+            } else {
+                null
+            },
+            isError = deviceNameError is ValidationResult.Invalid,
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -188,7 +221,11 @@ fun SettingsScreen(context: Context, onBack: () -> Unit, registerSave: (() -> Un
             value = pollMs,
             onValueChange = { pollMs = it.filter(Char::isDigit) },
             label = { Text("Clipboard poll interval (ms)") },
-            supportingText = { Text("How often the clipboard is re-checked. Lower = more responsive, higher = less battery. Clamped to 200-10000.") },
+            supportingText = {
+                val message = (pollMsError as? ValidationResult.Invalid)?.message
+                Text(message ?: "How often the clipboard is re-checked. Lower = more responsive, higher = less battery. Clamped to 200-10000.")
+            },
+            isError = pollMsError is ValidationResult.Invalid,
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             modifier = Modifier.fillMaxWidth(),
@@ -200,7 +237,11 @@ fun SettingsScreen(context: Context, onBack: () -> Unit, registerSave: (() -> Un
             value = maxHistoryEntries,
             onValueChange = { maxHistoryEntries = it.filter(Char::isDigit) },
             label = { Text("Max history entries") },
-            supportingText = { Text("Older items are dropped to stay within this limit.") },
+            supportingText = {
+                val message = (maxHistoryEntriesError as? ValidationResult.Invalid)?.message
+                Text(message ?: "Older items are dropped to stay within this limit.")
+            },
+            isError = maxHistoryEntriesError is ValidationResult.Invalid,
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             modifier = Modifier.fillMaxWidth(),
@@ -212,7 +253,11 @@ fun SettingsScreen(context: Context, onBack: () -> Unit, registerSave: (() -> Un
             value = maxLogKb,
             onValueChange = { maxLogKb = it.filter(Char::isDigit) },
             label = { Text("Max log file size (KB)") },
-            supportingText = { Text("The on-device log is trimmed to stay within this limit.") },
+            supportingText = {
+                val message = (maxLogKbError as? ValidationResult.Invalid)?.message
+                Text(message ?: "The on-device log is trimmed to stay within this limit.")
+            },
+            isError = maxLogKbError is ValidationResult.Invalid,
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             modifier = Modifier.fillMaxWidth(),
@@ -254,6 +299,12 @@ fun SettingsScreen(context: Context, onBack: () -> Unit, registerSave: (() -> Un
                 value = port,
                 onValueChange = { port = it.filter(Char::isDigit) },
                 label = { Text("Server port") },
+                supportingText = if (portError is ValidationResult.Invalid) {
+                    { Text(portError.message) }
+                } else {
+                    null
+                },
+                isError = portError is ValidationResult.Invalid,
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth(),
@@ -282,6 +333,12 @@ fun SettingsScreen(context: Context, onBack: () -> Unit, registerSave: (() -> Un
                 value = beaconPort,
                 onValueChange = { beaconPort = it.filter(Char::isDigit) },
                 label = { Text("Beacon port") },
+                supportingText = if (beaconPortError is ValidationResult.Invalid) {
+                    { Text(beaconPortError.message) }
+                } else {
+                    null
+                },
+                isError = beaconPortError is ValidationResult.Invalid,
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth(),
@@ -360,54 +417,56 @@ fun SettingsScreen(context: Context, onBack: () -> Unit, registerSave: (() -> Un
         // TLS
         SettingsSectionTitle("TLS")
 
-        Text("Client", style = MaterialTheme.typography.titleSmall)
-        Text(
-            "How this device connects to desktop daemons or Android servers.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        SwitchRow(
-            title = "TLS (wss)",
-            subtitle = "Requires a client certificate or trusted CA",
-            checked = tlsEnabled,
-            onCheckedChange = { tlsEnabled = it },
-        )
-        SwitchRow(
-            title = "Verify hostname",
-            subtitle = "Require the server certificate to match its address. Turn off to keep working after network changes",
-            checked = verifyHostname,
-            onCheckedChange = { verifyHostname = it },
-        )
+        if (appMode == Prefs.APP_MODE_CLIENT) {
+            Text("Client", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "How this device connects to desktop daemons or Android servers.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            SwitchRow(
+                title = "TLS (wss)",
+                subtitle = "Requires a client certificate or trusted CA",
+                checked = tlsEnabled,
+                onCheckedChange = { tlsEnabled = it },
+            )
+            SwitchRow(
+                title = "Verify hostname",
+                subtitle = "Require the server certificate to match its address. Turn off to keep working after network changes",
+                checked = verifyHostname,
+                onCheckedChange = { verifyHostname = it },
+            )
 
-        Text("Client certificates", style = MaterialTheme.typography.titleSmall)
-        Text(
-            "Used for mutual TLS with desktop servers. The first certificate is used automatically; its CA is trusted automatically.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        clientCerts.forEach { cert ->
-            Row(
-                Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(cert.caSubject, style = MaterialTheme.typography.bodyMedium)
+            Text("Client certificates", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "Used for mutual TLS with desktop servers. The first certificate is used automatically; its CA is trusted automatically.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            clientCerts.forEach { cert ->
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(cert.caSubject, style = MaterialTheme.typography.bodyMedium)
+                    }
+                    IconButton(onClick = {
+                        CertStore.deleteClientCert(context, cert.id)
+                        clientCerts.clear()
+                        clientCerts.addAll(CertStore.clientCerts(context))
+                    }) { Text("\u2715") }
                 }
-                IconButton(onClick = {
-                    CertStore.deleteClientCert(context, cert.id)
-                    clientCerts.clear()
-                    clientCerts.addAll(CertStore.clientCerts(context))
-                }) { Text("\u2715") }
             }
+            OutlinedButton(
+                onClick = { clientCertPicker.launch("*/*") },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Import .p12") }
+            OutlinedButton(
+                onClick = { qrScanner.launch(Intent(context, CaptureActivity::class.java)) },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Scan QR certificate") }
         }
-        OutlinedButton(
-            onClick = { clientCertPicker.launch("*/*") },
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("Import .p12") }
-        OutlinedButton(
-            onClick = { qrScanner.launch(Intent(context, CaptureActivity::class.java)) },
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("Scan QR certificate") }
 
         if (appMode == Prefs.APP_MODE_SERVER) {
             Text("Server", style = MaterialTheme.typography.titleSmall)
@@ -420,6 +479,12 @@ fun SettingsScreen(context: Context, onBack: () -> Unit, registerSave: (() -> Un
                 value = serverPort,
                 onValueChange = { serverPort = it.filter(Char::isDigit) },
                 label = { Text("Server port") },
+                supportingText = if (serverPortError is ValidationResult.Invalid) {
+                    { Text(serverPortError.message) }
+                } else {
+                    null
+                },
+                isError = serverPortError is ValidationResult.Invalid,
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth(),

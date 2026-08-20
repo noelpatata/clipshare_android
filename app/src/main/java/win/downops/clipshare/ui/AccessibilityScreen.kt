@@ -33,7 +33,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -75,8 +74,6 @@ fun AccessibilityScreen(context: Context) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Background capture", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -122,25 +119,8 @@ fun AccessibilityScreen(context: Context) {
                         "and sends it — even while ClipShare is in the background.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                Spacer(Modifier.height(8.dp))
-                CapturePoint(
-                    "If ClipShare is open",
-                    "Copies are sent from the main screen instead, no highlighting needed.",
-                )
             }
         }
-    }
-}
-
-@Composable
-private fun CapturePoint(title: String, body: String) {
-    Column(Modifier.padding(bottom = 8.dp)) {
-        Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-        Text(
-            body,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
 

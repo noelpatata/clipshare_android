@@ -108,7 +108,7 @@ class PrefsTest {
     @Test
     fun maxHistoryEntriesIsClamped() {
         Prefs.setMaxHistoryEntries(ctx, 1)
-        assertEquals(10, Prefs.maxHistoryEntries(ctx))
+        assertEquals(5, Prefs.maxHistoryEntries(ctx))
 
         Prefs.setMaxHistoryEntries(ctx, 99999)
         assertEquals(1000, Prefs.maxHistoryEntries(ctx))

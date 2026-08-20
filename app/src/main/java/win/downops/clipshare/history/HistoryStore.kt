@@ -17,8 +17,16 @@ object HistoryStore {
     fun load(ctx: Context): List<HistoryEntry> {
         val raw = ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
             .getString(KEY, null) ?: return emptyList()
-        return JsonList.parse(raw) { historyEntryFromJson(it) }
+        val entries = JsonList.parse(raw) { historyEntryFromJson(it) }
             .filterNotNull()
+        val max = Prefs.maxHistoryEntries(ctx)
+        return if (entries.size > max) {
+            val trimmed = entries.take(max)
+            save(ctx, trimmed)
+            trimmed
+        } else {
+            entries
+        }
     }
 
     fun append(ctx: Context, entry: HistoryEntry) {

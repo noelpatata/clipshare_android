@@ -113,17 +113,13 @@ object LogStore {
         }
     }
 
-    /** Keep the on-disk log within the configured size and entry budgets by
-     * dropping the oldest lines. The in-memory ring buffer caps entries; this
-     * additionally bounds how much disk space the file uses. */
+    /** Keep the on-disk log within the configured size budget by dropping the
+     * oldest lines. The in-memory ring buffer still caps entries for UI
+     * performance; this only bounds how much disk space the file uses. */
     private fun trimFile(file: File) {
         runCatching {
-            var lines = file.readLines()
-            if (lines.size > MAX_ENTRIES) {
-                lines = lines.takeLast(MAX_ENTRIES)
-                file.writeText(lines.joinToString("\n") + "\n")
-            }
             if (file.length() <= maxLogFileBytes) return@runCatching
+            val lines = file.readLines()
             val kept = ArrayList<String>()
             var size = 0L
             for (i in lines.size - 1 downTo 0) {

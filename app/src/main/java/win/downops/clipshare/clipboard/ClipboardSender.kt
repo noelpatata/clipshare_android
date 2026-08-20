@@ -96,7 +96,6 @@ object ClipboardSender {
     fun payloadOf(context: Context, clip: ClipData?): ClipPayload? {
         if (clip == null || clip.itemCount == 0) return null
         if (clip.description.label?.toString() == Constants.Clipboard.INTERNAL_CLIP_LABEL) {
-            Log.d("Clipboard", "skipping internal clip")
             return null
         }
         val item = clip.getItemAt(0)

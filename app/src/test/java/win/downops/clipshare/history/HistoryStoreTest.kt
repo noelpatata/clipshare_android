@@ -125,6 +125,20 @@ class HistoryStoreTest {
     }
 
     @Test
+    fun loadTrimsExistingEntriesWhenMaxIsLowered() {
+        for (i in 0 until 30) {
+            HistoryStore.append(ctx, textEntry("entry-$i", from = "peer-$i"))
+        }
+
+        Prefs.setMaxHistoryEntries(ctx, 5)
+        val loaded = HistoryStore.load(ctx)
+
+        assertEquals(5, loaded.size)
+        assertEquals("entry-29", (loaded[0].clip as ClipItem.Text).text)
+        assertEquals("entry-25", (loaded[4].clip as ClipItem.Text).text)
+    }
+
+    @Test
     fun clearEmptiesStoreAndDeletesImages() {
         val bytes = imageBytes()
         val imageId = ImageHistoryStore.generateId()
