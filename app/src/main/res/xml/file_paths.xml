@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
-    <cache-path name="clipshare_images" path="clipshare_images/" />
+    <files-path name="history_images" path="clipshare_history_images/" />
     <cache-path name="clipshare_share" path="clipshare_share/" />
     <files-path name="server_certs" path="server_certs/" />
 </paths>

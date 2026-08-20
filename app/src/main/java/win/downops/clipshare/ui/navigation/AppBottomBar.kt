@@ -17,10 +17,11 @@ import win.downops.clipshare.ui.NavSettingsIcon
 @Composable
 fun AppBottomBar(
     selected: AppScreen,
+    screens: List<AppScreen>,
     onSelect: (AppScreen) -> Unit,
 ) {
     NavigationBar {
-        AppScreen.ordered().forEach { screen ->
+        screens.forEach { screen ->
             NavigationBarItem(
                 selected = screen == selected,
                 onClick = { onSelect(screen) },

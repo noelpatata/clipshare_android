@@ -50,6 +50,18 @@ class ClientSyncMode(
     @Volatile
     private var whitelistIndex = 0
 
+    /** Normalized manual host from "Server (IP or hostname)" when set. */
+    @Volatile
+    private var manualTarget: String? = null
+
+    /**
+     * True while the manual host is the intended target (attempting to connect
+     * or already connected). Discovery announcements are ignored until the
+     * manual host is unreachable, so a filled host field always wins.
+     */
+    @Volatile
+    private var manualActive = false
+
     override fun start() {
         running = true
         startDiscovery()
@@ -96,12 +108,16 @@ class ClientSyncMode(
     /** Called from the discovery threads whenever a daemon announces itself. */
     private fun onDeviceFound(name: String, host: String, port: Int, tls: Boolean) {
         if (!running) return
-        if (!Prefs.autoConnect(context)) return
-        connectTo(host, port, tls, verifyName = false, persist = true)
+        // A filled manual host wins: only fall back to discovery once it is
+        // unreachable or not configured.
+        if (manualActive) return
+        connectTo(host, port, tls, verifyName = false, persist = false)
     }
 
     override fun switchTo(host: String, port: Int, tls: Boolean) {
-        connectTo(host, port, tls, verifyName = false, persist = true)
+        // Device taps are ephemeral and never rewrite the manual host field.
+        manualActive = false
+        connectTo(host, port, tls, verifyName = false, persist = false)
     }
 
     // ------------------------------------------------------------------
@@ -113,15 +129,20 @@ class ClientSyncMode(
             startWhitelistConnections()
             return
         }
-        val host = currentHost ?: Prefs.serverHost(context).takeIf { it.isNotBlank() } ?: run {
+        val manual = Prefs.serverHost(context).takeIf { it.isNotBlank() }
+        if (manual != null) {
+            val normalized = HostUtil.normalize(manual)
+            manualTarget = normalized
+            manualActive = true
+            Log.i("SyncService", "connecting to manual host $manual (tls=${Prefs.tlsEnabled(context)})")
+            connectTo(normalized, Prefs.serverPort(context), Prefs.tlsEnabled(context), verifyName = false, persist = false)
+        } else {
+            manualTarget = null
+            manualActive = false
             AppState.onSearching()
             events.updateNotification("Searching for servers...")
             Log.i("SyncService", "no host configured, searching via discovery")
-            return
         }
-        val port = if (currentPort > 0) currentPort else Prefs.serverPort(context)
-        Log.i("SyncService", "connecting to $host:$port (tls=${Prefs.tlsEnabled(context)})")
-        connectTo(host, port, Prefs.tlsEnabled(context), verifyName = false, persist = false)
     }
 
     private fun connectTo(
@@ -151,6 +172,9 @@ class ClientSyncMode(
                 AppState.onConnecting()
                 events.updateNotification("Connecting to $host...")
                 socket.start()
+            } else {
+                // A TLS failure must not block the discovery fallback.
+                manualActive = false
             }
         }
     }
@@ -186,6 +210,7 @@ class ClientSyncMode(
             onConnected = conn@{ name, _ ->
                 synchronized(lock) { if (ws !== socket) return@conn }
                 Log.i("SyncService", "connected to $name at $host")
+                manualActive = currentHost == manualTarget
                 if (verifyName && name.isNotBlank() && !whitelistNameMatches(name)) {
                     Log.w("SyncService", "name $name rejected by whitelist")
                     rejectCurrent()
@@ -203,18 +228,21 @@ class ClientSyncMode(
                     if (ws !== socket) return@disc
                 }
                 Log.i("SyncService", "disconnected: ${reason ?: "unknown"}")
+                manualActive = false
                 AppState.onDisconnected(reason)
                 events.updateNotification("Disconnected")
             },
             onReconnecting = recon@{ attempt ->
                 synchronized(lock) { if (ws !== socket) return@recon }
                 Log.i("SyncService", "reconnecting attempt $attempt")
+                manualActive = currentHost == manualTarget
                 AppState.onReconnecting(attempt)
                 events.updateNotification("Reconnecting ($host)...")
             },
             onConnectFailed = failed@{
                 synchronized(lock) { if (ws !== socket) return@failed }
                 Log.w("SyncService", "connect failed")
+                manualActive = false
                 onConnectFailed()
             },
             onError = err@{ msg ->

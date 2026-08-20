@@ -31,7 +31,6 @@ class PrefsTest {
         assertEquals(40403, Prefs.serverPort(ctx))
         assertFalse(Prefs.serverTlsEnabled(ctx))
         assertEquals("", Prefs.token(ctx))
-        assertTrue(Prefs.autoConnect(ctx))
         assertTrue(Prefs.discoveryEnabled(ctx))
         assertEquals(40404, Prefs.discoveryBeaconPort(ctx))
         assertFalse(Prefs.tlsEnabled(ctx))
@@ -40,9 +39,11 @@ class PrefsTest {
         assertEquals(256, Prefs.maxLogFileKb(ctx))
         assertEquals(50, Prefs.maxHistoryEntries(ctx))
         assertEquals(700L, Prefs.clipboardPollMs(ctx))
+        assertEquals(0L, Prefs.serverModeStartedAt(ctx))
+        assertFalse("logs should be disabled by default", Prefs.logsEnabled(ctx))
         assertEquals("[]", Prefs.clientCertsJson(ctx))
         assertEquals("[]", Prefs.trustedCasJson(ctx))
-        assertTrue("hostname verification should be strict by default", Prefs.verifyHostname(ctx))
+        assertFalse("hostname verification should be off by default", Prefs.verifyHostname(ctx))
         assertEquals(emptyList<WhitelistEntry>(), Prefs.whitelist(ctx))
     }
 
@@ -54,7 +55,6 @@ class PrefsTest {
         Prefs.setServerPort(ctx, 5000)
         Prefs.setServerTlsEnabled(ctx, true)
         Prefs.setToken(ctx, "  abc123 ")
-        Prefs.setAutoConnect(ctx, false)
         Prefs.setDiscoveryEnabled(ctx, false)
         Prefs.setDiscoveryBeaconPort(ctx, 9090)
         Prefs.setTlsEnabled(ctx, true)
@@ -66,6 +66,8 @@ class PrefsTest {
         Prefs.setClientCertsJson(ctx, """[{"alias":"c"}]""")
         Prefs.setTrustedCasJson(ctx, """[{"name":"ca"}]""")
         Prefs.setVerifyHostname(ctx, false)
+        Prefs.setServerModeStartedAt(ctx, 123456789L)
+        Prefs.setLogsEnabled(ctx, false)
 
         assertEquals("Pixel 9", Prefs.deviceName(ctx))
         assertEquals(Prefs.APP_MODE_SERVER, Prefs.appMode(ctx))
@@ -73,7 +75,6 @@ class PrefsTest {
         assertEquals(5000, Prefs.serverPort(ctx))
         assertTrue(Prefs.serverTlsEnabled(ctx))
         assertEquals("abc123", Prefs.token(ctx))
-        assertFalse(Prefs.autoConnect(ctx))
         assertFalse(Prefs.discoveryEnabled(ctx))
         assertEquals(9090, Prefs.discoveryBeaconPort(ctx))
         assertTrue(Prefs.tlsEnabled(ctx))
@@ -85,6 +86,8 @@ class PrefsTest {
         assertEquals("""[{"alias":"c"}]""", Prefs.clientCertsJson(ctx))
         assertEquals("""[{"name":"ca"}]""", Prefs.trustedCasJson(ctx))
         assertFalse("hostname verification should be off after setter", Prefs.verifyHostname(ctx))
+        assertEquals(123456789L, Prefs.serverModeStartedAt(ctx))
+        assertFalse(Prefs.logsEnabled(ctx))
     }
 
     @Test

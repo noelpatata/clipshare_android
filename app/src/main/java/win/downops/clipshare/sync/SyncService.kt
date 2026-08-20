@@ -18,13 +18,16 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import win.downops.clipshare.MainActivity
 import win.downops.clipshare.R
+import win.downops.clipshare.certs.CertStore
 import win.downops.clipshare.clipboard.ClipboardWriter
+import win.downops.clipshare.history.ClipItem
+import win.downops.clipshare.history.HistoryEntry
+import win.downops.clipshare.history.image.ImageHistoryStore
 import win.downops.clipshare.logs.Log
 import win.downops.clipshare.settings.Prefs
 import win.downops.clipshare.state.AppState
 import win.downops.clipshare.util.Constants
 import win.downops.clipshare.ws.Protocol
-import java.io.File
 
 /**
  * Foreground service that runs in either client or server mode.
@@ -49,6 +52,14 @@ class SyncService : Service(), SyncEvents {
         Log.i("SyncService", "onCreate")
         AppState.onServiceStarted(this)
         AppState.setAppMode(Prefs.appMode(this))
+
+        // Client certs have no value in server mode: drop them once the
+        // retention window has lapsed (also enforced from the settings screen).
+        if (Prefs.appMode(this) == Prefs.APP_MODE_SERVER) {
+            if (CertStore.purgeClientSecretsIfServerModeExpired(this)) {
+                Log.i("SyncService", "purged client certificates (server-mode retention)")
+            }
+        }
 
         val m = if (Prefs.appMode(this) == Prefs.APP_MODE_SERVER) {
             ServerSyncMode(this, this)
@@ -101,8 +112,11 @@ class SyncService : Service(), SyncEvents {
         val image = clip.image
         if (image != null) {
             Log.i("SyncService", "received ${image.size} byte ${clip.mime ?: "image"}")
-            writeClipboardImage(image, clip.mime ?: Constants.Mime.IMAGE_PNG)
-            AppState.onReceivedImage(this, image, clip.mime ?: Constants.Mime.IMAGE_PNG, clip.from)
+            val mime = clip.mime ?: Constants.Mime.IMAGE_PNG
+            // Persist to history first; the clipboard can then reuse that file,
+            // so a received image is never duplicated in the cache.
+            val entry = AppState.onReceivedImage(this, image, mime, clip.from)
+            setClipboardFromHistory(entry, mime)
         } else {
             val text = clip.text
             if (text != null) {
@@ -119,28 +133,16 @@ class SyncService : Service(), SyncEvents {
         ClipboardWriter.writeText(this, Constants.Clipboard.INTERNAL_CLIP_LABEL, text)
     }
 
-    private fun writeClipboardImage(bytes: ByteArray, mime: String) {
-        val dir = File(cacheDir, "clipshare_images").apply { mkdirs() }
-        val ext = when (mime.lowercase()) {
-            Constants.Mime.IMAGE_PNG -> "png"
-            Constants.Mime.IMAGE_JPEG, Constants.Mime.IMAGE_JPG -> "jpg"
-            "image/gif" -> "gif"
-            "image/webp" -> "webp"
-            "image/bmp" -> "bmp"
-            else -> "img"
-        }
-        val file = File(dir, "clip_${System.currentTimeMillis()}.$ext")
-        try {
-            file.writeBytes(bytes)
-        } catch (e: Exception) {
-            Log.e("SyncService", "failed to write clipboard image", e)
-            return
-        }
+    /** Puts a received image on the clipboard from its persisted history file. */
+    private fun setClipboardFromHistory(entry: HistoryEntry?, mime: String) {
+        val clip = entry?.clip as? ClipItem.Image ?: return
+        val file = ImageHistoryStore.imageFile(this, clip.imageId) ?: return
+        if (!file.exists()) return
         val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
         // Label the clip as app-internal so capture paths skip it and we avoid
         // echoing received content back to peers (and avoid duplicate history).
-        ClipboardWriter.writeImage(this, Constants.Clipboard.INTERNAL_CLIP_LABEL, uri)
-        Log.i("SyncService", "wrote image to clipboard: ${file.name}")
+        ClipboardWriter.writeImage(this, Constants.Clipboard.INTERNAL_CLIP_LABEL, uri, mime)
+        Log.i("SyncService", "placed received image on clipboard from history: ${file.name}")
     }
 
     // ------------------------------------------------------------------

@@ -12,6 +12,7 @@ class SettingsClientWhitelistTest : SettingsBaseTest() {
 
     @Test
     fun whitelistModeShowsWhitelistSection() {
+        settings.openAdvancedTab()
         settings.clickWhitelist()
         settings.addWhitelistEntry()
         settings.clickSave()

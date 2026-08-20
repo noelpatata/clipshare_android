@@ -13,7 +13,9 @@ class SettingsClientTlsTest : SettingsBaseTest() {
 
     @Test
     fun showsTlsSwitch() {
-        settings.assertTextDisplayedAfterScroll("TLS (wss)")
+        // Both the client and the server TLS switches are always present.
+        settings.assertSwitchDisplayed("TLS (wss)")
+        settings.assertSwitchDisplayed("server_tls")
     }
 
     @Test

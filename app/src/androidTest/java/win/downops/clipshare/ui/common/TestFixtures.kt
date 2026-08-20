@@ -19,9 +19,10 @@ object TestFixtures {
         }.also { bmp.recycle() }
     }
 
-    /** Clears prefs, history, and resets the in-memory app state. */
+    /** Clears prefs, history, generated certs, and the in-memory app state. */
     fun clearAppStateAndPrefs(context: Context) {
         context.getSharedPreferences("clipshare_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+        context.filesDir.resolve("server_certs").deleteRecursively()
         HistoryManager.clear(context)
         AppState.resetForTesting()
     }

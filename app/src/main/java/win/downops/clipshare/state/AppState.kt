@@ -193,7 +193,7 @@ object AppState {
         _history.value = listOf(entry) + _history.value
     }
 
-    fun onReceivedImage(ctx: Context, bytes: ByteArray, mime: String, from: String) {
+    fun onReceivedImage(ctx: Context, bytes: ByteArray, mime: String, from: String): HistoryEntry? {
         val entry = HistoryManager.addImage(
             ctx = ctx,
             bytes = bytes,
@@ -204,6 +204,7 @@ object AppState {
         if (entry != null) {
             _history.value = listOf(entry) + _history.value
         }
+        return entry
     }
 
     fun onSent(ctx: Context, text: String) {

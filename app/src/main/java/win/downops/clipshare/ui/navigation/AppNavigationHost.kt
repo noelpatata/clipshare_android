@@ -23,6 +23,7 @@ import win.downops.clipshare.ui.SettingsScreen
 @Composable
 fun AppNavigationHost(
     context: Context,
+    screens: List<AppScreen>,
     pagerState: PagerState,
     padding: PaddingValues,
     saveSettings: ((() -> Unit)?) -> Unit,
@@ -32,8 +33,6 @@ fun AppNavigationHost(
     onClearHistory: () -> Unit,
     onSettingsBack: () -> Unit,
 ) {
-    val screens = AppScreen.ordered()
-
     HorizontalPager(
         state = pagerState,
         modifier = Modifier
@@ -59,6 +58,3 @@ fun AppNavigationHost(
         }
     }
 }
-
-/** Returns the index of [screen] in the ordered screen list. */
-fun AppScreen.index(): Int = AppScreen.ordered().indexOf(this)

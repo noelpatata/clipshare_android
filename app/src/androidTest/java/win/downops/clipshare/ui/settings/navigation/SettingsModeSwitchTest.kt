@@ -9,12 +9,16 @@ import win.downops.clipshare.ui.settings.SettingsBaseTest
 class SettingsModeSwitchTest : SettingsBaseTest() {
 
     @Test
-    fun switchingBackToClientShowsConnectionSettingsAgain() {
+    fun sectionsAreAlwaysVisibleRegardlessOfMode() {
         settings.switchToServerMode()
+        // Client sections are not hidden in server mode anymore.
+        settings.assertTextDisplayed("Server (IP or hostname)")
         settings.assertTextDisplayedAfterScroll("Regenerate cert")
 
         settings.switchToClientMode()
-        settings.assertTextDisplayed("Connection")
-        settings.assertTextDoesNotExist("Regenerate cert")
+        settings.assertTextDisplayedAfterScroll("Server (IP or hostname)")
+        // Server sections are not hidden in client mode anymore.
+        settings.assertTextDisplayedAfterScroll("Server token (optional)")
+        settings.assertTextDisplayedAfterScroll("Regenerate cert")
     }
 }

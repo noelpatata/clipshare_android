@@ -19,6 +19,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -71,15 +72,24 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun ClipShareApp() {
         val context = LocalContext.current
-        val screens = AppScreen.ordered()
+        val logsEnabled = Prefs.logsEnabled(context)
+        val screens = AppScreen.ordered(logsEnabled)
         val pagerState = rememberPagerState(pageCount = { screens.size })
         val scope = rememberCoroutineScope()
         var saveSettings by remember { mutableStateOf<(() -> Unit)?>(null) }
 
-        val currentScreen = screens[pagerState.currentPage]
+        val currentPage = pagerState.currentPage.coerceAtMost(screens.lastIndex)
+        val currentScreen = screens[currentPage]
+
+        // When the Logs screen is removed (advanced toggle), land on a valid page.
+        LaunchedEffect(screens.size) {
+            if (pagerState.currentPage >= screens.size) {
+                pagerState.scrollToPage((screens.size - 1).coerceAtLeast(0))
+            }
+        }
 
         BackHandler(enabled = currentScreen != AppScreen.Main) {
-            scope.launch { pagerState.animateScrollToPage(AppScreen.Main.index()) }
+            scope.launch { pagerState.animateScrollToPage(AppScreen.Main.index(logsEnabled)) }
         }
 
         Scaffold(
@@ -104,14 +114,16 @@ class MainActivity : ComponentActivity() {
             bottomBar = {
                 AppBottomBar(
                     selected = currentScreen,
+                    screens = screens,
                     onSelect = { screen ->
-                        scope.launch { pagerState.animateScrollToPage(screen.index()) }
+                        scope.launch { pagerState.animateScrollToPage(screens.indexOf(screen)) }
                     },
                 )
             }
         ) { padding ->
             AppNavigationHost(
                 context = context,
+                screens = screens,
                 pagerState = pagerState,
                 padding = padding,
                 saveSettings = { saveSettings = it },
@@ -129,7 +141,7 @@ class MainActivity : ComponentActivity() {
                 },
                 onClearHistory = { AppState.clearHistory(context) },
                 onSettingsBack = {
-                    scope.launch { pagerState.animateScrollToPage(AppScreen.Main.index()) }
+                    scope.launch { pagerState.animateScrollToPage(AppScreen.Main.index(logsEnabled)) }
                 },
             )
         }

@@ -60,7 +60,7 @@ object HistoryManager {
         }
         val imageId = ImageHistoryStore.generateId()
         val previewId = ImageHistoryStore.generateId()
-        if (!ImageHistoryStore.storeImage(ctx, imageId, bytes)) return null
+        if (!ImageHistoryStore.storeImage(ctx, imageId, bytes, mime)) return null
         if (!ImageHistoryStore.storePreview(ctx, previewId, preview)) {
             ImageHistoryStore.delete(ctx, imageId, previewId)
             return null

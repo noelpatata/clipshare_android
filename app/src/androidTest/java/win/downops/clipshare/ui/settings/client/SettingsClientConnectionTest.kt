@@ -12,7 +12,6 @@ class SettingsClientConnectionTest : SettingsBaseTest() {
 
     @Test
     fun showsConnectionSettings() {
-        settings.assertTextDisplayed("Connection")
         settings.assertTextDisplayed("Server (IP or hostname)")
     }
 

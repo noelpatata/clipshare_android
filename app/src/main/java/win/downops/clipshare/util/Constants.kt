@@ -45,6 +45,12 @@ object Constants {
         const val PING_INTERVAL_MS = 30_000L
         const val BACKOFF_INITIAL_MS = 1_000L
         const val BACKOFF_MAX_MS = 10_000L
+
+        /** RFC 6455 close code used by servers to reject a connection (e.g. token mismatch). */
+        const val POLICY_REJECTION_CODE = 1008
+
+        /** Error shown when the server rejects the connection; the server's reason is appended. */
+        const val CONNECTION_REJECTED = "Connection rejected by server"
     }
 
     object Whitelist {
@@ -125,6 +131,15 @@ object Constants {
 
     object Pkcs12 {
         const val PASSWORD = "clipshare"
+    }
+
+    object Certs {
+        /**
+         * Client certificate bundles are only used to authenticate to other
+         * servers. In server mode they hold no value, so they are deleted after
+         * this retention period to reduce the app's secret surface.
+         */
+        const val SERVER_MODE_CLIENT_CERT_RETENTION_MS = 7L * 24 * 60 * 60 * 1000
     }
 
     object Validation {

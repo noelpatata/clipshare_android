@@ -3,8 +3,9 @@
 This document explains every setting in the ClipShare Android app and the behavior behind it.
 
 The app works in one of two roles — **Client** or **Server** — chosen in
-**Settings → General → App mode**. Everything else in Settings is shown conditionally based on
-that choice.
+**Settings → General → App mode**. All settings sections (**General**, **Client**, **Server**,
+**Advanced**, **History**) are always visible regardless of the mode; irrelevant settings are simply
+ignored while that mode is inactive.
 
 ---
 
@@ -22,6 +23,11 @@ Discovery is on by default, so in most cases there is nothing to configure: a cl
 under **Devices** on the home screen and you tap one to connect. The beacon advertises the server's
 port and whether it uses TLS; the client switches to `wss` automatically when the server announces
 TLS.
+
+The **Server (IP or hostname)** field is *not* required: leave it empty for pure discovery. If it is
+filled, the client connects to that host first and only falls back to discovered servers when that
+host is unreachable. Tapping a device in the list is always ephemeral — it never rewrites the
+saved host field.
 
 ---
 
@@ -41,7 +47,154 @@ Changing the mode takes effect when you **Save**; if sync is running it is resta
 
 ---
 
-## Logging
+## Client
+
+Settings used when this device is a **Client**.
+
+### Server (IP or hostname)
+
+The address of the server to connect to. A hostname works too, as long as it resolves on your
+network. **Leave empty for pure discovery**; when filled, the client prefers this host and only
+falls back to discovery when it is unreachable. This is not a fallback list — it is a *preferred*
+target.
+
+### Server port
+
+The TCP port of the server's WebSocket endpoint. Default `40403`. Used both for manual connects and
+as the port to dial when a whitelist entry has no port.
+
+### Shared token (optional)
+
+A shared secret, if the server requires one. When set, it is appended to the WebSocket URL as
+`?token=...`. The server rejects connections whose token does not match. This is separate from the
+**Server token** that a server in this app requires from its own clients.
+
+### Discovery
+
+Default **on**. Turns mDNS + UDP beacon scanning on/off. Disable it if you only ever connect
+manually or via whitelist and do not want the scanning traffic.
+
+### TLS (wss)
+
+Default **off**. Enables encrypted `wss://` connections to desktop daemons or Android servers.
+Requires a client certificate **or** a trusted CA to be present, otherwise the connection is refused
+with a clear error.
+
+### Client certificates
+
+`.p12` bundles (exported by the desktop daemon's `clipshare cert export`, or received from an
+Android server's client-cert QR). Every imported certificate is offered during the TLS handshake,
+so the server can select the one signed by its own CA (mutual TLS). The CA inside a `.p12` is
+trusted automatically — there is no separate "trusted CA" list to maintain.
+
+Certificates can be imported two ways:
+
+- **Import .p12** — pick a `.p12` file from the device.
+- **Scan QR certificate** — scan the single QR code a server shows (**Show client cert QR**). The QR
+  encodes a compact gzip-compressed bundle holding the private key, the leaf certificate **and** the
+  issuing CA. One scan installs the client certificate for mutual TLS **and** auto-trusts the CA —
+  there is no separate CA QR and no extra trust step. The app rebuilds the `.p12` locally.
+
+---
+
+## Server
+
+Settings used when this device is a **Server**.
+
+### Server port
+
+The port the built-in server listens on (`40403` by default). Clients must use the same port unless
+they learn it from a beacon.
+
+### Server token (optional)
+
+A shared secret that clients must include as `?token=...` when connecting. Blank means no token is
+required. This is separate from the **Shared token** a client sends.
+
+### Bind address
+
+Whether the server listens on **Any**, **IPv4** only, or **IPv6** only. Defaults to **Any**.
+
+### TLS (wss)
+
+Default **off**. When enabled, the app generates a local CA + server certificate pair and serves
+`wss://` instead of `ws://`. **Mutual TLS is always required**: the server accepts only client
+certificates signed by its own CA, so a connecting device must import a client certificate issued
+by this server (via the client-cert QR below) or trust this server's CA. The certificate is not
+bound to any particular LAN IP, so it keeps working across wifi/DHCP changes.
+
+Certificate management:
+
+- **Regenerate cert** — replaces the stored CA + server certificate pair (e.g. to rotate before
+  expiry). Re-issue client certificates afterwards.
+- **Copy CA** — copies the CA certificate (PEM) to the clipboard so you can paste it into a file.
+- **Share CA file** — sends the CA certificate to another app/device as a file.
+- **Show client cert QR** — generates a *fresh* client certificate signed by this server's CA, along
+  with the CA itself, and shows both as a single QR code. Scanning it with another device's **Scan QR
+  certificate** installs the client certificate **and** trusts this server's CA in one step. Each tap
+  issues a new key.
+
+> The server-side certificate password is fixed (`clipshare`) and used only to protect the local
+> PKCS#12 store; it is not a connection credential.
+
+### Client certificate retention
+
+Client certificate bundles are only used to authenticate to *other* servers, so they have no value
+while this device runs as a server. When the device is in server mode, its stored client
+certificates are **deleted after 7 days** (counted from the last time server mode was saved). While
+they are still present, the settings screen shows a warning with the deletion date; a client that
+wants to connect over TLS must scan a fresh client-cert QR from this server's screen.
+
+---
+
+## Advanced
+
+Settings that most users never touch.
+
+### Clipboard poll interval (ms)
+
+How often the foreground clipboard watcher re-checks the clipboard (default `700`, clamped to
+`200`–`10000`). Lower is more responsive; higher uses less battery.
+
+### Beacon port
+
+The UDP port the server announces on (`40404` by default) — this is the *listening* port the client
+also opens to receive beacons. Only change it if you have changed the port on every server you use.
+
+### Connection mode
+
+- **Discover** (default) — scan via mDNS/beacons and connect to whatever shows up (subject to the
+  host-field preference above).
+- **Whitelist** — do not scan. Try each whitelisted IP in turn until one connects, and verify the
+  server's announced name against the whitelist entry.
+
+#### Whitelist entries
+
+Each entry has an optional **Name** and an **IP**. Matching is on name *or* IP:
+
+- The client dials `whitelist-IP : server-port`.
+- When the server announces its name after connecting, the client checks it against the entry.
+  An entry with a blank name accepts any server at that IP; an entry with a name rejects a server
+  that announces something different.
+- After a failed attempt the client waits ~1.5 s and advances to the next candidate.
+
+### IP version
+
+Filter discovered servers by address family (**Any**, **IPv4**, **IPv6**). Manual entries are never
+filtered.
+
+### Verify hostname
+
+Default **on** (strict). When enabled, the server certificate's SANs must match the dialed
+address. Turn it off to verify the server certificate against the trusted CA only — hostname/IP-
+address matching is skipped, keeping connections working when a device moves to another wifi/DHCP
+network; there is no need to regenerate or re-import certificates when the LAN address changes.
+
+### Enable logs
+
+Default **on**. Controls whether the **Logs** screen and bottom-navigation entry are shown. Logs are
+still recorded in the background when this is off; you just do not see the screen. The
+**Max log file size (KB)** setting below only appears when logs are enabled.
 
 ### Max log file size (KB)
 
@@ -58,135 +211,6 @@ additionally capped at 500 lines.
 Upper bound for the local clipboard/command history (default `50`, allowed `10`–`1000`). The newest
 entries are kept; the oldest are dropped as new ones arrive. History is stored as JSON in the app's
 SharedPreferences and is independent of the log file.
-
----
-
-## Clipboard
-
-### Clipboard poll interval (ms)
-
-How often the foreground clipboard watcher re-checks the clipboard (default `700`, clamped to
-`200`–`10000`). Lower is more responsive; higher uses less battery.
-
----
-
-## Client settings
-
-Shown when **App mode = Client**.
-
-### Server (IP or hostname)
-
-The address of the server to connect to when you are not relying on discovery (or as a fallback). A
-hostname works too, as long as it resolves on your network.
-
-### Server port
-
-The TCP port of the server's WebSocket endpoint. Default `40403`. Used both for manual connects and
-as the port to dial when a whitelist entry has no port.
-
-### Shared token (optional)
-
-A shared secret, if the server requires one. When set, it is appended to the WebSocket URL as
-`?token=...`. The server rejects connections whose token does not match.
-
-### Auto-connect
-
-Default **on**. When on, the client connects automatically to a discovered server (or to the
-configured host) as soon as sync starts, and reconnects with backoff while the service runs. When
-off, the app stays in "searching" state until you tap a device or enter a host.
-
-### Discovery
-
-Default **on**. Turns mDNS + UDP beacon scanning on/off. Disable it if you only ever connect
-manually or via whitelist and do not want the scanning traffic.
-
-### Beacon port
-
-The UDP port the server announces on (`40404` by default) — this is the *listening* port the client
-also opens to receive beacons. Only change it if you have changed the port on every server you use.
-
-### Connection mode
-
-- **Discover** (default) — scan via mDNS/beacons and connect to whatever shows up (subject to
-  Auto-connect).
-- **Whitelist** — do not scan. Try each whitelisted IP in turn until one connects, and verify the
-  server's announced name against the whitelist entry.
-
-#### Whitelist entries
-
-Each entry has an optional **Name** and an **IP**. Matching is on name *or* IP:
-
-- The client dials `whitelist-IP : server-port`.
-- When the server announces its name after connecting, the client checks it against the entry.
-  An entry with a blank name accepts any server at that IP; an entry with a name rejects a server
-  that announces something different.
-- After a failed attempt the client waits ~1.5 s and advances to the next candidate.
-
----
-
-## TLS
-
-TLS settings for both roles live in one place.
-
-### Client
-
-#### TLS (wss)
-
-Default **off**. Enables encrypted `wss://` connections to desktop daemons or Android servers.
-Requires a client certificate **or** a trusted CA to be present, otherwise the connection is refused
-with a clear error.
-
-#### Verify hostname
-
-Default **on** (strict). When enabled, the server certificate's SANs must match the dialed
-address. Turn it off to verify the server certificate against the trusted CA only — hostname/IP-
-address matching is skipped, keeping connections working when a device moves to another wifi/DHCP
-network; there is no need to regenerate or re-import certificates when the LAN address changes.
-
-#### Client certificates
-
-`.p12` bundles (exported by the desktop daemon's `clipshare cert export`). The first imported
-certificate is used automatically for mutual TLS, and its CA is trusted automatically — there is no
-separate "trusted CA" list to maintain.
-
-Certificates can be imported two ways:
-
-- **Import .p12** — pick a `.p12` file from the device.
-- **Scan QR certificate** — scan the QR code shown by another ClipShare device (Android server mode)
-  or printed by the desktop daemon's `clipshare cert qr`. The QR encodes a compact gzip-compressed
-  certificate bundle (key + leaf, without the CA), a legacy `.p12` bundle, or a CA certificate; all
-  are accepted automatically. The app rebuilds the `.p12` locally.
-
-The CA is deliberately not bundled with device certificates so the QR stays small. Trust it once
-per server by scanning `clipshare cert qr --type ca` (or the Android server's CA QR), and it is
-stored in the trusted CA list.
-
----
-
-### Server
-
-Shown when **App mode = Server**.
-
-#### Server port
-
-The port the built-in server listens on (`40403` by default). Clients must use the same port unless
-they learn it from a beacon.
-
-#### TLS (wss)
-
-Default **off**. When enabled, the app generates a local CA + server certificate pair, stores them
-in the app's key store, and serves `wss://` instead of `ws://`. Clients then need the CA
-certificate to trust the server. The certificate is not bound to any particular LAN IP, so it
-keeps working across wifi/DHCP changes.
-
-- **Regenerate cert** — replaces the stored certificate pair (e.g. to rotate before expiry).
-- **Copy CA** — copies the CA certificate (PEM) to the clipboard so you can paste it into a file.
-- **Share CA file** — sends the CA certificate to another app/device as a file.
-- **Show QR** — shows the CA certificate as a QR code; another ClipShare device in client mode can
-  scan it with **Scan QR certificate** to trust this server.
-
-> The server-side certificate password is fixed (`clipshare`) and used only to protect the local
-> PKCS#12 store; it is not a connection credential.
 
 ---
 
@@ -221,9 +245,9 @@ stops working.
 
 ## Diagnostics
 
-- **View logs** opens the log screen: the last log lines, with **Clear** (wipe the log) and
-  **Share** (export the log to another app). Logs are useful to troubleshoot connection or
-  clipboard issues.
+- The **Logs** screen (hidden unless **Enable logs** is on in Advanced) shows the last log lines,
+  with **Clear** (wipe the log) and **Share** (export the log to another app). Logs are useful to
+  troubleshoot connection or clipboard issues.
 - **Clear history** on the home screen wipes the local clipboard/command history.
 
 ---
@@ -248,9 +272,10 @@ stops working.
   within a size budget (default ~10 MB). JPEGs are progressively re-compressed; large PNGs fall
   back to JPEG. On arrival, images are written to the clipboard as file URIs.
 - **Reconnect** — the client reconnects with exponential backoff (1 s → 10 s) and sends a keepalive
-  ping every ~30 s.
+  ping every ~30 s. If the server *rejects* the connection (e.g. a wrong shared token, close code
+  1008), the client stops retrying and shows the server's reason as an error instead of looping.
 - **Cleartext** — plain `ws://` on the LAN is allowed (`android:usesCleartextTraffic`), which is
-  required for unencrypted sync. For anything sensitive, use TLS.
+  required for unencrypted sync. For anything sensitive, use TLS (with mutual TLS on server mode).
 
 ---
 
@@ -262,12 +287,13 @@ stops working.
 | Server port | 40403 |
 | Beacon port | 40404 |
 | mDNS service | `_clipshare._tcp` |
-| Auto-connect | on |
 | Discovery | on |
 | Connection mode | Discover |
 | TLS (wss) | off |
 | Verify hostname | on |
 | Token | empty |
+| Server token | empty |
+| Enable logs | on |
 | Max log file size | 256 KB (16–4096) |
 | Max history entries | 50 (10–1000) |
 | Clipboard poll interval | 700 ms (200–10000) |

@@ -50,20 +50,14 @@ data class TrustedCaInfo(
  */
 object CertStore {
 
-    private const val LEGACY_P12 = "certs/client.p12"
     private const val CLIENT_CERTS_DIR = "certs/clients"
     private const val TRUSTED_CA_DIR = "certs/trusted"
-
-    /** Wire version of the compact QR envelope from the desktop `cert qr`. */
-    private const val QR_FORMAT_VERSION = 0x02
-    private const val QR_FORMAT_VERSION_LEGACY = 0x01
 
     // ------------------------------------------------------------------
     // Client certificates
     // ------------------------------------------------------------------
 
     fun clientCerts(context: Context): List<ClientCertInfo> {
-        migrateLegacyCert(context)
         return loadClientCertsRaw(context)
     }
 
@@ -81,7 +75,7 @@ object CertStore {
         return importClientP12Bytes(context, bytes)
     }
 
-    /** Imports a client .p12 from raw bytes (file picker or QR scan). */
+    /** Imports a client .p12 from raw bytes (file picker). */
     fun importClientP12Bytes(context: Context, bytes: ByteArray): Boolean {
         val dest = File(context.filesDir, "$CLIENT_CERTS_DIR/${newId()}.p12")
         return try {
@@ -119,24 +113,58 @@ object CertStore {
         saveClientCerts(context, clientCerts(context).filter { it.id != id })
     }
 
+    /** Deletes every stored client certificate bundle (private keys). */
+    fun deleteAllClientCerts(context: Context) {
+        File(context.filesDir, CLIENT_CERTS_DIR).listFiles()?.forEach { it.delete() }
+        saveClientCerts(context, emptyList())
+    }
+
     /**
-     * Builds a [ClientTls] context using the first available client certificate.
-     * The certificate is used for servers that require mutual TLS (e.g. the
-     * desktop daemon). Servers that do not require a client cert simply ignore
-     * it.
+     * Deletes all client certificate bundles when the device has been in server
+     * mode for at least [Constants.Certs.SERVER_MODE_CLIENT_CERT_RETENTION_MS].
+     * Returns true if a purge happened.
+     */
+    fun purgeClientSecretsIfServerModeExpired(context: Context): Boolean {
+        if (Prefs.appMode(context) != Prefs.APP_MODE_SERVER) return false
+        val startedAt = Prefs.serverModeStartedAt(context)
+        if (startedAt <= 0L) return false
+        val elapsed = System.currentTimeMillis() - startedAt
+        if (elapsed < Constants.Certs.SERVER_MODE_CLIENT_CERT_RETENTION_MS) return false
+        deleteAllClientCerts(context)
+        return true
+    }
+
+    /**
+     * Builds a [ClientTls] context that presents every available client
+     * certificate. The combined key store lets the TLS handshake offer all of
+     * them, so the server can select the one signed by its own CA (required for
+     * mutual TLS). Servers that do not require a client cert ignore them.
      */
     fun clientTlsWithCert(context: Context): ClientTls? {
         val certs = clientCerts(context)
-        val cert = certs.firstOrNull() ?: return legacyClientTls(context)
-        val file = File(context.filesDir, "$CLIENT_CERTS_DIR/${cert.id}.p12")
-        return buildClientTls(context, file)
-    }
-
-    /** Legacy single-cert path used for desktop daemon connections. */
-    fun legacyClientTls(context: Context): ClientTls? {
-        val file = File(context.filesDir, LEGACY_P12)
-        if (!file.exists()) return null
-        return buildClientTls(context, file)
+        val ks = KeyStore.getInstance("PKCS12").apply { load(null, null) }
+        var loaded = 0
+        certs.forEach { cert ->
+            val file = File(context.filesDir, "$CLIENT_CERTS_DIR/${cert.id}.p12")
+            if (file.exists()) {
+                try {
+                    val src = loadP12(file)
+                    val aliases = src.aliases()
+                    while (aliases.hasMoreElements()) {
+                        val alias = aliases.nextElement()
+                        if (src.isKeyEntry(alias)) {
+                            val key = src.getKey(alias, Constants.Pkcs12.PASSWORD.toCharArray())
+                            val chain = src.getCertificateChain(alias)
+                            ks.setKeyEntry("client-$loaded", key, Constants.Pkcs12.PASSWORD.toCharArray(), chain)
+                            loaded++
+                        }
+                    }
+                } catch (_: Exception) {
+                }
+            }
+        }
+        if (loaded == 0) return null
+        return buildClientTls(context, ks)
     }
 
     /**
@@ -159,16 +187,6 @@ object CertStore {
     fun trustedCas(context: Context): List<TrustedCaInfo> {
         val json = Prefs.trustedCasJson(context)
         return parseTrustedCas(json)
-    }
-
-    fun importTrustedCa(context: Context, uri: Uri): Boolean {
-        return try {
-            val pem = context.contentResolver.openInputStream(uri)?.use { it.reader().readText() }
-                ?: return false
-            importTrustedCaFromPem(context, pem)
-        } catch (_: Exception) {
-            false
-        }
     }
 
     fun importTrustedCaFromPem(context: Context, pem: String): Boolean {
@@ -202,50 +220,32 @@ object CertStore {
     }
 
     /**
-     * Imports a certificate from a QR scan. Supports a client PKCS#12 bundle
-     * ("clipshare-p12:...") or a CA certificate ("clipshare-ca:..."), both with
-     * unpadded base64 payloads, as produced by `clipshare cert qr` and the app's
-     * server-mode QR share.
+     * Imports a client certificate from a QR scan. The only accepted payload is
+     * the "clipshare-p12:..." envelope produced by [QrCodes.clientCertQrContent]:
+     * a gzipped key + leaf + CA bundle. The CA is auto-trusted, so one scan gives
+     * both the private key for mutual TLS and the CA needed to validate the
+     * server.
      */
     fun importFromQrContent(context: Context, content: String): Boolean {
-        return when {
-            content.startsWith(QrCodes.P12_PREFIX) -> {
-                val bytes = decodeQrPayload(content.removePrefix(QrCodes.P12_PREFIX))
-                    ?: return false
-                if (isGzip(bytes)) {
-                    importCompactQrBytes(context, bytes)
-                } else {
-                    // Legacy QR payloads encoded the full PKCS#12 directly.
-                    importClientP12Bytes(context, bytes)
-                }
-            }
-            content.startsWith(QrCodes.CA_PREFIX) -> {
-                val pem = decodeQrPayload(content.removePrefix(QrCodes.CA_PREFIX))
-                    ?.toString(Charsets.UTF_8)
-                    ?: return false
-                importTrustedCaFromPem(context, pem)
-            }
-            else -> false
-        }
+        if (!content.startsWith(QrCodes.P12_PREFIX)) return false
+        val bytes = decodeQrPayload(content.removePrefix(QrCodes.P12_PREFIX))
+            ?: return false
+        return importEnvelopeQrBytes(context, bytes)
     }
 
     private fun isGzip(bytes: ByteArray): Boolean =
         bytes.size >= 2 && bytes[0] == 0x1f.toByte() && bytes[1] == 0x8b.toByte()
 
     /**
-     * Imports the compact QR bundle produced by `clipshare cert qr`: a gzipped
-     * envelope of the PKCS#8 key and leaf certificate (DER), optionally with the
-     * CA certificate in legacy bundles. The bundle is rebuilt as a PKCS#12 and
-     * passed through the normal import path so TLS uses the same store.
+     * Imports the envelope produced by [QrCodes.clientCertQrContent]: a gzipped
+     * key + leaf + CA bundle. It is rebuilt as a PKCS#12 and passed through the
+     * normal import path, so TLS uses the same store and the CA is auto-trusted.
      */
-    private fun importCompactQrBytes(context: Context, bytes: ByteArray): Boolean {
+    private fun importEnvelopeQrBytes(context: Context, bytes: ByteArray): Boolean {
+        if (!isGzip(bytes)) return false
         return try {
             val body = GZIPInputStream(ByteArrayInputStream(bytes)).use { it.readBytes() }
             var off = 0
-            if (off >= body.size) return false
-            val version = body[off++]
-            if (version != QR_FORMAT_VERSION.toByte() && version != QR_FORMAT_VERSION_LEGACY.toByte()) return false
-
             fun u16(): Int? {
                 if (off + 2 > body.size) return null
                 val n = ((body[off].toInt() and 0xff) shl 8) or (body[off + 1].toInt() and 0xff)
@@ -262,8 +262,7 @@ object CertStore {
 
             val keyDer = segment() ?: return false
             val leafDer = segment() ?: return false
-            // Legacy (v1) bundles also carried the CA so one scan was enough.
-            val caDer = if (version == QR_FORMAT_VERSION_LEGACY.toByte()) segment() else null
+            val caDer = segment() ?: return false
 
             val p12 = buildP12Bundle(keyDer, leafDer, caDer) ?: return false
             importClientP12Bytes(context, p12)
@@ -272,20 +271,15 @@ object CertStore {
         }
     }
 
-    private fun buildP12Bundle(keyDer: ByteArray, leafDer: ByteArray, caDer: ByteArray?): ByteArray? {
+    private fun buildP12Bundle(keyDer: ByteArray, leafDer: ByteArray, caDer: ByteArray): ByteArray? {
         return try {
             val key = KeyFactory.getInstance("EC").generatePrivate(PKCS8EncodedKeySpec(keyDer))
             val cf = CertificateFactory.getInstance("X.509")
             val leaf = cf.generateCertificate(ByteArrayInputStream(leafDer)) as? X509Certificate ?: return null
+            val ca = cf.generateCertificate(ByteArrayInputStream(caDer)) as? X509Certificate ?: return null
             val ks = KeyStore.getInstance("PKCS12")
             ks.load(null, null)
-            val chain = if (caDer != null) {
-                val ca = cf.generateCertificate(ByteArrayInputStream(caDer)) as? X509Certificate ?: return null
-                arrayOf(leaf, ca)
-            } else {
-                arrayOf(leaf)
-            }
-            ks.setKeyEntry("client", key, Constants.Pkcs12.PASSWORD.toCharArray(), chain)
+            ks.setKeyEntry("client", key, Constants.Pkcs12.PASSWORD.toCharArray(), arrayOf(leaf, ca))
             val out = ByteArrayOutputStream()
             ks.store(out, Constants.Pkcs12.PASSWORD.toCharArray())
             out.toByteArray()
@@ -337,10 +331,8 @@ object CertStore {
     // Helpers
     // ------------------------------------------------------------------
 
-    private fun buildClientTls(context: Context, p12File: File): ClientTls? {
-        if (!p12File.exists()) return null
+    private fun buildClientTls(context: Context, ks: KeyStore): ClientTls? {
         return try {
-            val ks = loadP12(p12File)
             val keyManagers = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
                 .apply { init(ks, Constants.Pkcs12.PASSWORD.toCharArray()) }
                 .keyManagers
@@ -387,28 +379,6 @@ object CertStore {
         }
     }
 
-    private fun migrateLegacyCert(context: Context) {
-        val legacy = File(context.filesDir, LEGACY_P12)
-        if (!legacy.exists()) return
-        if (loadClientCertsRaw(context).isNotEmpty()) return
-        val dest = File(context.filesDir, "$CLIENT_CERTS_DIR/${newId()}.p12")
-        try {
-            dest.parentFile?.mkdirs()
-            legacy.copyTo(dest)
-            val ks = loadP12(dest)
-            val (caSubject, fingerprint) = extractCaInfo(ks) ?: ("" to "")
-            val info = ClientCertInfo(
-                id = dest.nameWithoutExtension,
-                caSubject = caSubject,
-                fingerprint = fingerprint,
-            )
-            saveClientCerts(context, listOf(info))
-            legacy.delete()
-        } catch (_: Exception) {
-            dest.delete()
-        }
-    }
-
     private fun loadP12(file: File): KeyStore {
         return KeyStore.getInstance("PKCS12").apply {
             file.inputStream().use { load(it, Constants.Pkcs12.PASSWORD.toCharArray()) }
@@ -431,15 +401,22 @@ object CertStore {
     }
 
     private fun extractCertificateChain(ks: KeyStore): Array<X509Certificate>? {
+        // Prefer the entry with the longest chain so a store that also carries
+        // the issuer CA key (server-mode p12) still yields leaf + CA.
+        var best: Array<X509Certificate>? = null
         val aliases = ks.aliases()
         while (aliases.hasMoreElements()) {
             val alias = aliases.nextElement()
             if (ks.isKeyEntry(alias)) {
-                @Suppress("UNCHECKED_CAST")
-                return ks.getCertificateChain(alias)?.filterIsInstance<X509Certificate>()?.toTypedArray()
+                val chain = ks.getCertificateChain(alias)
+                    ?.filterIsInstance<X509Certificate>()
+                    ?.toTypedArray()
+                if (chain != null && (best == null || chain.size > best.size)) {
+                    best = chain
+                }
             }
         }
-        return null
+        return best
     }
 
     private fun parseClientCerts(json: String): List<ClientCertInfo> = JsonList.parse(json) {

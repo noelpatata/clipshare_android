@@ -13,6 +13,7 @@ import org.bouncycastle.asn1.x509.KeyUsage
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo
 import org.bouncycastle.cert.X509v3CertificateBuilder
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter
+import org.bouncycastle.cert.jcajce.JcaX509CertificateHolder
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
 import java.io.File
 import java.math.BigInteger
@@ -38,6 +39,7 @@ object ServerCertManager {
     private const val CA_FILE = "ca.crt"
     private const val KEY_ALIAS = "server"
     private const val CA_ALIAS = "ca"
+    private const val CA_KEY_ALIAS = "ca-key"
 
     fun hasCerts(context: Context): Boolean = p12File(context).exists() && caFile(context).exists()
 
@@ -57,10 +59,10 @@ object ServerCertManager {
     }
 
     /**
-     * Returns a content:// Uri for sharing the CA certificate.
+     * Returns a content:// Uri for sharing the server certificate bundle.
      */
-    fun getCaCertificateShareUri(context: Context): Uri? {
-        val file = caFile(context)
+    fun getP12ShareUri(context: Context): Uri? {
+        val file = p12File(context)
         if (!file.exists()) return null
         return FileProvider.getUriForFile(
             context,
@@ -98,6 +100,13 @@ object ServerCertManager {
             Constants.Pkcs12.PASSWORD.toCharArray(),
             arrayOf(serverCert, caCert),
         )
+        // Keep the CA private key so client certificates can be issued later.
+        ks.setKeyEntry(
+            CA_KEY_ALIAS,
+            caKeyPair.private,
+            Constants.Pkcs12.PASSWORD.toCharArray(),
+            arrayOf(caCert),
+        )
         ks.setCertificateEntry(CA_ALIAS, caCert)
         p12.outputStream().use { out ->
             ks.store(out, Constants.Pkcs12.PASSWORD.toCharArray())
@@ -113,11 +122,66 @@ object ServerCertManager {
         val file = p12File(context)
         if (!file.exists()) return null
         return try {
-val ks = KeyStore.getInstance("PKCS12")
+            val ks = KeyStore.getInstance("PKCS12")
             file.inputStream().use {
                 ks.load(it, Constants.Pkcs12.PASSWORD.toCharArray())
             }
             ks
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Builds a trust store containing only the server CA. Client certificates
+     * issued by this CA are the only ones accepted when TLS is enabled, so
+     * mutual TLS is always required.
+     */
+    fun loadTrustStore(context: Context): KeyStore? {
+        val pem = getCaCertificatePem(context) ?: return null
+        val cert = parseCertificate(pem) ?: return null
+        return try {
+            val ks = KeyStore.getInstance(KeyStore.getDefaultType()).apply { load(null, null) }
+            ks.setCertificateEntry(CA_ALIAS, cert)
+            ks
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Issues a fresh client certificate signed by the server CA.
+     *
+     * Returns the PKCS#8 DER-encoded private key, the DER-encoded leaf
+     * certificate and the DER-encoded CA certificate (so one QR can carry both
+     * the key for mutual TLS and the CA to trust), or null if the server certs
+     * have not been generated.
+     */
+    fun issueClientCertificate(
+        context: Context,
+        deviceName: String,
+    ): Triple<ByteArray, ByteArray, ByteArray>? {
+        val file = p12File(context)
+        if (!file.exists()) return null
+        return try {
+            val ks = loadKeyStore(context) ?: return null
+            if (!ks.isKeyEntry(CA_KEY_ALIAS)) return null
+            val caKey = ks.getKey(CA_KEY_ALIAS, Constants.Pkcs12.PASSWORD.toCharArray())
+                as? java.security.PrivateKey ?: return null
+            val caCert = ks.getCertificate(CA_KEY_ALIAS) as? X509Certificate ?: return null
+
+            val clientKeyPair = generateEcKeyPair()
+            val clientSubject = X500Name("CN=ClipShare Client ($deviceName), O=ClipShare")
+            // Use the CA's exact subject encoding (no string round-trip) so the
+            // leaf's issuer matches byte-for-byte and PKCS#12 chain validation
+            // accepts leaf + CA as one bundle.
+            val clientCert = createClientCertificate(
+                JcaX509CertificateHolder(caCert).subject,
+                caKey,
+                clientSubject,
+                clientKeyPair.public,
+            )
+            Triple(clientKeyPair.private.encoded, clientCert.encoded, caCert.encoded)
         } catch (_: Exception) {
             null
         }
@@ -187,6 +251,41 @@ val ks = KeyStore.getInstance("PKCS12")
             Extension.extendedKeyUsage,
             false,
             ExtendedKeyUsage(arrayOf(KeyPurposeId.id_kp_serverAuth)),
+        )
+
+        val signer = JcaContentSignerBuilder("SHA256withECDSA").build(issuerKey)
+        return JcaX509CertificateConverter().getCertificate(builder.build(signer))
+    }
+
+    private fun createClientCertificate(
+        issuer: X500Name,
+        issuerKey: java.security.PrivateKey,
+        subject: X500Name,
+        subjectPublicKey: java.security.PublicKey,
+    ): X509Certificate {
+        val now = System.currentTimeMillis()
+        val notBefore = Date(now)
+        val notAfter = Date(now + TimeUnit.DAYS.toMillis(365)) // 1 year
+        val serial = BigInteger(64, SecureRandom())
+
+        val builder = X509v3CertificateBuilder(
+            issuer,
+            serial,
+            notBefore,
+            notAfter,
+            subject,
+            SubjectPublicKeyInfo.getInstance(subjectPublicKey.encoded),
+        )
+        builder.addExtension(Extension.basicConstraints, true, BasicConstraints(false))
+        builder.addExtension(
+            Extension.keyUsage,
+            true,
+            KeyUsage(KeyUsage.digitalSignature),
+        )
+        builder.addExtension(
+            Extension.extendedKeyUsage,
+            false,
+            ExtendedKeyUsage(arrayOf(KeyPurposeId.id_kp_clientAuth)),
         )
 
         val signer = JcaContentSignerBuilder("SHA256withECDSA").build(issuerKey)

@@ -43,6 +43,14 @@ class SettingsRobot(
         }
     }
 
+    fun openAdvancedTab() {
+        composeRule.onNodeWithTag("tab_advanced").performClick()
+    }
+
+    fun openGeneralTab() {
+        composeRule.onNodeWithTag("tab_general").performClick()
+    }
+
     fun switchToClientMode() {
         composeRule.onNodeWithTag("mode_client").performClick()
     }
@@ -67,14 +75,21 @@ class SettingsRobot(
         composeRule.onNodeWithTag("server_tls").assertIsOn()
     }
 
+    fun assertWarningDialogDisplayed() {
+        composeRule.onNodeWithText("Client certificates expire").assertIsDisplayed()
+    }
+
+    fun dismissWarningDialog() {
+        composeRule.onNodeWithText("OK").performClick()
+    }
+
     fun typeHost(host: String) {
         composeRule.onNode(hasSetTextAction() and hasText("Server (IP or hostname)"))
             .performTextReplacement(host)
     }
 
     fun typePort(port: String) {
-        composeRule.onNode(hasSetTextAction() and hasText("Server port"))
-            .performTextReplacement(port)
+        composeRule.onNodeWithTag("client_port").performTextReplacement(port)
     }
 
     fun typeToken(token: String) {
@@ -93,6 +108,10 @@ class SettingsRobot(
 
     fun addWhitelistEntry() {
         composeRule.onNodeWithText("Add entry").performScrollTo().performClick()
+    }
+
+    fun assertSwitchDisplayed(tag: String) {
+        composeRule.onNodeWithTag(tag).performScrollTo().assertIsDisplayed()
     }
 
     fun assertTextDisplayed(text: String) {

@@ -33,7 +33,7 @@ object Prefs {
     private const val KEY_SERVER_BIND_IP_VERSION = "server_bind_ip_version"
     private const val KEY_TOKEN = "token"
     private const val KEY_SERVER_TOKEN = "server_token"
-    private const val KEY_AUTO_CONNECT = "auto_connect"
+    private const val KEY_SERVER_MODE_STARTED_AT = "server_mode_started_at"
     private const val KEY_DISCOVERY = "discovery_enabled"
     private const val KEY_DISCOVERY_BEACON_PORT = "discovery_beacon_port"
     private const val KEY_TLS_ENABLED = "tls_enabled"
@@ -47,6 +47,7 @@ object Prefs {
     private const val KEY_CLIENT_CERTS = "client_certs"
     private const val KEY_TRUSTED_CAS = "trusted_cas"
     private const val KEY_VERIFY_HOSTNAME = "verify_hostname"
+    private const val KEY_LOGS_ENABLED = "logs_enabled"
 
     private fun prefs(ctx: Context) =
         ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -73,7 +74,7 @@ object Prefs {
 
     fun serverToken(ctx: Context): String = prefs(ctx).getString(KEY_SERVER_TOKEN, "") ?: ""
 
-    fun autoConnect(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_AUTO_CONNECT, true)
+    fun serverModeStartedAt(ctx: Context): Long = prefs(ctx).getLong(KEY_SERVER_MODE_STARTED_AT, 0L)
 
     fun discoveryEnabled(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_DISCOVERY, true)
 
@@ -109,7 +110,9 @@ object Prefs {
     fun trustedCasJson(ctx: Context): String =
         prefs(ctx).getString(KEY_TRUSTED_CAS, "[]") ?: "[]"
 
-    fun verifyHostname(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_VERIFY_HOSTNAME, true)
+    fun verifyHostname(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_VERIFY_HOSTNAME, false)
+
+    fun logsEnabled(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_LOGS_ENABLED, false)
 
     fun whitelist(ctx: Context): List<WhitelistEntry> {
         val raw = prefs(ctx).getString(KEY_WHITELIST, null) ?: return emptyList()
@@ -142,8 +145,8 @@ object Prefs {
     fun setServerToken(ctx: Context, value: String) =
         prefs(ctx).edit().putString(KEY_SERVER_TOKEN, value.trim()).apply()
 
-    fun setAutoConnect(ctx: Context, value: Boolean) =
-        prefs(ctx).edit().putBoolean(KEY_AUTO_CONNECT, value).apply()
+    fun setServerModeStartedAt(ctx: Context, value: Long) =
+        prefs(ctx).edit().putLong(KEY_SERVER_MODE_STARTED_AT, value).apply()
 
     fun setDiscoveryEnabled(ctx: Context, value: Boolean) =
         prefs(ctx).edit().putBoolean(KEY_DISCOVERY, value).apply()
@@ -180,6 +183,9 @@ object Prefs {
 
     fun setVerifyHostname(ctx: Context, value: Boolean) =
         prefs(ctx).edit().putBoolean(KEY_VERIFY_HOSTNAME, value).apply()
+
+    fun setLogsEnabled(ctx: Context, value: Boolean) =
+        prefs(ctx).edit().putBoolean(KEY_LOGS_ENABLED, value).apply()
 
     fun setWhitelist(ctx: Context, entries: List<WhitelistEntry>) {
         prefs(ctx).edit().putString(

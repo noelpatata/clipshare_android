@@ -71,10 +71,11 @@ desktop daemon and several phones can all join the same server.
 - **Quick Settings tile** — toggle sync from the notification shade
 - **Manual connect** — fall back to entering a host and port by hand
 - **Clipboard history** — recent items are stored locally and shown in the app (clearable)
-- **Mutual TLS** — import the `.p12` the desktop exports (`clipshare cert export`) or scan it as a
-  QR code (`clipshare cert qr`), and sync over `wss` with client certificates. A server phone can
-  share its CA via file or QR so other phones trust it in one scan. Hostname verification is on by
-  default; turn it off in Settings to trust the CA only, so connections keep working across
+- **Mutual TLS** — import the `.p12` the desktop exports (`clipshare cert export`) or scan the single
+  QR a server shows (`**Show client cert QR**`): it carries a fresh client certificate **and** the
+  server CA, so one scan installs the cert for `wss` and trusts the server. Server TLS always
+  requires a client certificate signed by the server's CA (mutual TLS). Hostname verification is on
+  by default; turn it off in Settings to trust the CA only, so connections keep working across
   wifi/DHCP changes with no re-import.
 - **Whitelist mode** — mirrors the daemon's `connection.mode = "whitelist"`: no scanning, only the
   listed IPs, and the server identity is verified against the whitelist entry
@@ -103,8 +104,8 @@ The APK is written to `app/build/outputs/apk/debug/`.
 Install the APK on your device and open the app. On first launch it will ask for notification
 permission (needed for the background sync service). Then either:
 
-1. Let it auto-connect — tap a discovered device from the list, or
-2. Enter the server's address manually in **Settings**.
+1. Tap a discovered device from the list to connect, or
+2. Enter the server's address manually in **Settings** (leave it empty to rely on discovery).
 
 See [docs/configuration.md](docs/configuration.md) for every setting explained.
 
@@ -134,7 +135,7 @@ An optional `?token=` query parameter is appended when a token is configured.
   written by the service and always work.
 - `android:usesCleartextTraffic` is enabled for plain `ws://` traffic on the LAN.
 - Logs and clipboard history are stored locally and trimmed to stay within configurable size
-  limits (see Settings → General).
+  limits (logs in Settings → Advanced; history in Settings → History).
 
 ## License
 

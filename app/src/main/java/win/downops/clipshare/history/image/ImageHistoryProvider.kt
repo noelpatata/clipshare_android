@@ -1,6 +1,7 @@
 package win.downops.clipshare.history.image
 
 import win.downops.clipshare.history.HistoryEntry
+import java.io.File
 
 /**
  * Provides access to the image bytes stored for a [HistoryEntry].
@@ -15,4 +16,7 @@ interface ImageHistoryProvider {
 
     /** Loads the small preview bytes for an image history entry. */
     fun loadPreview(entry: HistoryEntry): ByteArray?
+
+    /** Returns the on-disk file for the full image, or null if missing. */
+    fun imageFile(entry: HistoryEntry): File?
 }

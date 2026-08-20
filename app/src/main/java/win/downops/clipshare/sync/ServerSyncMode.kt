@@ -51,6 +51,17 @@ class ServerSyncMode(
             return
         }
 
+        // mTLS is always required with server TLS: only client certificates
+        // signed by this server's CA are accepted.
+        val trustStore = if (tls) ServerCertManager.loadTrustStore(context) else null
+        if (tls && trustStore == null) {
+            val msg = "Server TLS enabled but CA trust store failed to load"
+            Log.e("SyncService", msg)
+            AppState.onError(msg)
+            events.updateNotification(msg)
+            return
+        }
+
         val bindHost = when (Prefs.serverBindIpVersion(context)) {
             Prefs.IP_VERSION_IPV4 -> "0.0.0.0"
             Prefs.IP_VERSION_IPV6 -> "::"
@@ -62,6 +73,7 @@ class ServerSyncMode(
             deviceName = Prefs.deviceName(context),
             keyStore = keyStore,
             keyStorePassword = if (tls) Constants.Pkcs12.PASSWORD.toCharArray() else null,
+            trustStore = trustStore,
             serverToken = Prefs.serverToken(context),
             onReceived = { from, clip ->
                 events.receive(clip)

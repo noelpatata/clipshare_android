@@ -14,8 +14,11 @@ class SettingsServerUiTest : SettingsBaseTest() {
     fun showsServerSettings() {
         settings.switchToServerMode()
 
+        // Sections are always visible: the client host field is still present
+        // in server mode, and the server token field is present.
+        settings.assertTextDisplayed("Server (IP or hostname)")
+        settings.assertTextDisplayedAfterScroll("Server token (optional)")
         settings.assertTextDisplayedAfterScroll("Regenerate cert")
-        settings.assertTextDoesNotExist("Server (IP or hostname)")
     }
 
     @Test

@@ -23,17 +23,26 @@ object ImageHistoryStore {
     /** Generates a fresh identifier for a stored image. */
     fun generateId(): String = UUID.randomUUID().toString()
 
-    /** Stores the full compressed image bytes and returns its id. */
-    fun storeImage(ctx: Context, id: String, bytes: ByteArray): Boolean =
-        store(File(imageDir(ctx), fileName(id)), bytes)
+    /**
+     * Stores the full compressed image bytes and returns its id.
+     *
+     * The file is named with a MIME-based extension so a FileProvider can hand
+     * it to the system clipboard with the right type (no cache copy needed).
+     */
+    fun storeImage(ctx: Context, id: String, bytes: ByteArray, mime: String = "image/png"): Boolean =
+        store(File(imageDir(ctx), "$id.${mimeExtension(mime)}"), bytes)
 
     /** Stores the small preview bytes and returns its id. */
     fun storePreview(ctx: Context, id: String, bytes: ByteArray): Boolean =
         store(File(previewDir(ctx), fileName(id)), bytes)
 
+    /** Returns the on-disk file for a stored full image, or null if missing. */
+    fun imageFile(ctx: Context, id: String): File? =
+        imageDir(ctx).listFiles()?.firstOrNull { it.name.startsWith("$id.") }
+
     /** Loads the full compressed image bytes, or null if missing. */
     fun loadImage(ctx: Context, id: String): ByteArray? =
-        load(File(imageDir(ctx), fileName(id)))
+        imageFile(ctx, id)?.let { load(it) }
 
     /** Loads the small preview bytes, or null if missing. */
     fun loadPreview(ctx: Context, id: String): ByteArray? =
@@ -41,7 +50,7 @@ object ImageHistoryStore {
 
     /** Deletes a full image and its preview from disk. */
     fun delete(ctx: Context, imageId: String, previewId: String) {
-        File(imageDir(ctx), fileName(imageId)).delete()
+        imageFile(ctx, imageId)?.delete()
         File(previewDir(ctx), fileName(previewId)).delete()
     }
 
@@ -53,16 +62,20 @@ object ImageHistoryStore {
 
     /** Removes any image files that are no longer referenced by the given ids. */
     fun gc(ctx: Context, retainedIds: Set<String>) {
-        val imageDir = imageDir(ctx)
-        val previewDir = previewDir(ctx)
-        val allFiles = imageDir.listFiles().orEmpty().toList() + previewDir.listFiles().orEmpty().toList()
+        val allFiles = imageDir(ctx).listFiles().orEmpty().toList() + previewDir(ctx).listFiles().orEmpty().toList()
         allFiles
-            .mapNotNull { idFromFileName(it.name)?.takeIf { id -> id !in retainedIds } }
-            .toSet()
-            .forEach { id ->
-                File(imageDir, fileName(id)).delete()
-                File(previewDir, fileName(id)).delete()
-            }
+            .filter { f -> idFromFileName(f.name)?.let { it !in retainedIds } ?: true }
+            .forEach { it.delete() }
+    }
+
+    /** Maps an image MIME type to a file extension for the full-size image. */
+    fun mimeExtension(mime: String): String = when (mime.lowercase()) {
+        "image/png" -> "png"
+        "image/jpeg", "image/jpg" -> "jpg"
+        "image/gif" -> "gif"
+        "image/webp" -> "webp"
+        "image/bmp" -> "bmp"
+        else -> "img"
     }
 
     private fun store(file: File, bytes: ByteArray): Boolean = try {
@@ -82,6 +95,8 @@ object ImageHistoryStore {
 
     private fun fileName(id: String): String = "$id.img"
 
-    private fun idFromFileName(name: String): String? =
-        if (name.endsWith(".img")) name.removeSuffix(".img") else null
+    private fun idFromFileName(name: String): String? {
+        val dot = name.lastIndexOf('.')
+        return if (dot > 0) name.substring(0, dot) else null
+    }
 }

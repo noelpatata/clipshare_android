@@ -71,11 +71,20 @@ class WsClient(
     @Volatile
     private var userClosed = false
 
+    /**
+     * Set when the server rejects the connection (close code 1008, e.g. a
+     * wrong shared token). Reconnecting would only keep failing, so the loop
+     * stops and the server's reason is surfaced as an error.
+     */
+    @Volatile
+    private var fatalReason: String? = null
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     fun start() {
         running = true
         userClosed = false
+        fatalReason = null
         Log.i("WsClient", "start $url")
         scope.launch { runLoop() }
     }
@@ -135,6 +144,16 @@ class WsClient(
             onReconnecting(attempt)
             val ok = connectOnce(attempt)
             if (!running) return
+            val fatal = fatalReason
+            if (fatal != null) {
+                // The server rejected us (e.g. wrong shared token). Retrying is
+                // pointless, so stop and tell the user instead.
+                running = false
+                val msg = Constants.WebSocket.CONNECTION_REJECTED +
+                    if (fatal.isBlank()) "" else ": $fatal"
+                onError(msg)
+                return
+            }
             if (ok) {
                 backoff = INITIAL_BACKOFF
                 attempt = 0
@@ -193,6 +212,9 @@ class WsClient(
             override fun onClosing(socket: WebSocket, code: Int, reason: String) {
                 Log.i("WsClient", "onClosing $code $reason")
                 if (pending === socket) pending = null
+                if (code == Constants.WebSocket.POLICY_REJECTION_CODE) {
+                    fatalReason = reason
+                }
                 socket.close(code, reason)
                 synchronized(lock) {
                     ok[0] = false

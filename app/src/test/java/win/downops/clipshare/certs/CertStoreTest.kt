@@ -13,11 +13,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import win.downops.clipshare.settings.Prefs
 import win.downops.clipshare.util.Constants
-import java.io.ByteArrayOutputStream
 import java.io.File
-import java.security.KeyStore
-import java.security.cert.X509Certificate
-import java.util.zip.GZIPOutputStream
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
@@ -36,27 +32,16 @@ class CertStoreTest {
     }
 
     @Test
-    fun caQrImportTrustsCa() {
+    fun clientCertQrImportRegistersClientCertAndTrustsCa() {
         ServerCertManager.generate(ctx, "srv")
-        val content = QrCodes.serverCaContent(ctx)
-        assertNotNull("expected a QR payload", content)
-        assertTrue(content!!.startsWith(QrCodes.CA_PREFIX))
+        val content = QrCodes.clientCertQrContent(ctx)
+        assertNotNull("expected a client-cert QR payload", content)
+        assertTrue(content!!.startsWith(QrCodes.P12_PREFIX))
 
         val ok = CertStore.importFromQrContent(ctx, content)
-        assertTrue("CA QR import should succeed", ok)
-        assertEquals(1, CertStore.trustedCas(ctx).size)
-    }
-
-    @Test
-    fun p12QrImportRegistersClientCertAndTrustsItsCa() {
-        ServerCertManager.generate(ctx, "srv")
-        val content = QrCodes.p12Content(ServerCertManager.p12File(ctx).readBytes())
-        assertTrue(content.startsWith(QrCodes.P12_PREFIX))
-
-        val ok = CertStore.importFromQrContent(ctx, content)
-        assertTrue("p12 QR import should succeed", ok)
+        assertTrue("client-cert QR import should succeed", ok)
         assertEquals(1, CertStore.clientCerts(ctx).size)
-        // The CA inside the bundle must be auto-trusted.
+        // The CA ships in the same envelope and must be auto-trusted.
         assertEquals(1, CertStore.trustedCas(ctx).size)
     }
 
@@ -64,87 +49,76 @@ class CertStoreTest {
     fun invalidQrContentIsRejected() {
         assertFalse(CertStore.importFromQrContent(ctx, "clipshare-p12:not-base64!!!"))
         assertFalse(CertStore.importFromQrContent(ctx, "garbage"))
+        assertFalse(CertStore.importFromQrContent(ctx, "clipshare-ca:AAAA"))
         assertEquals(0, CertStore.clientCerts(ctx).size)
         assertEquals(0, CertStore.trustedCas(ctx).size)
     }
 
     @Test
-    fun compactQrImportRegistersClientCertWithoutCa() {
+    fun rawP12QrPayloadIsRejected() {
+        // Only the proprietary envelope is accepted in QR codes now; a raw
+        // (non-gzipped) PKCS#12 payload must be rejected.
         ServerCertManager.generate(ctx, "srv")
-        val p12 = ServerCertManager.p12File(ctx).readBytes()
+        val raw = QrCodes.p12Content(ServerCertManager.p12File(ctx).readBytes())
 
-        // Build the compact envelope exactly as the desktop `cert qr` does:
-        // version byte + u16-prefixed key/leaf DER, gzipped, unpadded base64.
-        val ks = KeyStore.getInstance("PKCS12")
-        ks.load(p12.inputStream(), Constants.Pkcs12.PASSWORD.toCharArray())
-        val keyAlias = ks.aliases().asSequence().first { ks.isKeyEntry(it) }
-        val keyDer = ks.getKey(keyAlias, Constants.Pkcs12.PASSWORD.toCharArray()).encoded
-        val chain = ks.getCertificateChain(keyAlias)
-        val leafDer = (chain[0] as X509Certificate).encoded
-        val caDer = (chain[1] as X509Certificate).encoded
-
-        val body = ByteArrayOutputStream()
-        body.write(2)
-        writeSegment(body, keyDer)
-        writeSegment(body, leafDer)
-        val gz = ByteArrayOutputStream()
-        GZIPOutputStream(gz).use { it.write(body.toByteArray()) }
-
-        val p12Content = QrCodes.p12Content(gz.toByteArray())
-        val legacyContent = QrCodes.p12Content(p12)
-        assertTrue("compact payload should be smaller than the raw p12",
-            p12Content.length < legacyContent.length)
-
-        val ok = CertStore.importFromQrContent(ctx, p12Content)
-        assertTrue("compact QR import should succeed", ok)
-        assertEquals(1, CertStore.clientCerts(ctx).size)
-        // The CA is no longer shipped in the device QR; nothing to auto-trust.
+        assertFalse(CertStore.importFromQrContent(ctx, raw))
+        assertEquals(0, CertStore.clientCerts(ctx).size)
         assertEquals(0, CertStore.trustedCas(ctx).size)
     }
 
     @Test
-    fun legacyCompactQrImportStillTrustsItsCa() {
+    fun purgeDeletesClientCertsAfterServerModeRetention() {
+        Prefs.setAppMode(ctx, Prefs.APP_MODE_SERVER)
         ServerCertManager.generate(ctx, "srv")
-        val p12 = ServerCertManager.p12File(ctx).readBytes()
-
-        // Old v1 bundles carried key/leaf/CA in one envelope.
-        val ks = KeyStore.getInstance("PKCS12")
-        ks.load(p12.inputStream(), Constants.Pkcs12.PASSWORD.toCharArray())
-        val keyAlias = ks.aliases().asSequence().first { ks.isKeyEntry(it) }
-        val keyDer = ks.getKey(keyAlias, Constants.Pkcs12.PASSWORD.toCharArray()).encoded
-        val chain = ks.getCertificateChain(keyAlias)
-
-        val body = ByteArrayOutputStream()
-        body.write(1)
-        writeSegment(body, keyDer)
-        writeSegment(body, (chain[0] as X509Certificate).encoded)
-        writeSegment(body, (chain[1] as X509Certificate).encoded)
-        val gz = ByteArrayOutputStream()
-        GZIPOutputStream(gz).use { it.write(body.toByteArray()) }
-
-        val ok = CertStore.importFromQrContent(ctx, QrCodes.p12Content(gz.toByteArray()))
-        assertTrue("legacy compact QR import should succeed", ok)
+        val content = QrCodes.clientCertQrContent(ctx)
+        assertNotNull(content)
+        assertTrue(CertStore.importFromQrContent(ctx, content!!))
         assertEquals(1, CertStore.clientCerts(ctx).size)
-        assertEquals(1, CertStore.trustedCas(ctx).size)
+
+        // No started-at marker yet: nothing to purge.
+        assertFalse(CertStore.purgeClientSecretsIfServerModeExpired(ctx))
+
+        // Freshly started: still inside the retention window.
+        Prefs.setServerModeStartedAt(ctx, System.currentTimeMillis())
+        assertFalse(CertStore.purgeClientSecretsIfServerModeExpired(ctx))
+        assertEquals(1, CertStore.clientCerts(ctx).size)
+
+        // Retention lapsed: purge runs and removes every client bundle.
+        Prefs.setServerModeStartedAt(
+            ctx,
+            System.currentTimeMillis() - Constants.Certs.SERVER_MODE_CLIENT_CERT_RETENTION_MS - 1,
+        )
+        assertTrue(CertStore.purgeClientSecretsIfServerModeExpired(ctx))
+        assertEquals(0, CertStore.clientCerts(ctx).size)
     }
 
     @Test
-    fun corruptCompactQrIsRejected() {
+    fun purgeIsNoOpInClientMode() {
+        Prefs.setAppMode(ctx, Prefs.APP_MODE_CLIENT)
+        ServerCertManager.generate(ctx, "srv")
+        val content = QrCodes.clientCertQrContent(ctx)
+        assertNotNull(content)
+        assertTrue(CertStore.importFromQrContent(ctx, content!!))
+        Prefs.setServerModeStartedAt(
+            ctx,
+            System.currentTimeMillis() - Constants.Certs.SERVER_MODE_CLIENT_CERT_RETENTION_MS - 1,
+        )
+
+        assertFalse(CertStore.purgeClientSecretsIfServerModeExpired(ctx))
+        assertEquals(1, CertStore.clientCerts(ctx).size)
+    }
+
+    @Test
+    fun corruptEnvelopeQrIsRejected() {
         val junk = QrCodes.p12Content(byteArrayOf(0x1f.toByte(), 0x8b.toByte(), 1, 2, 3))
         assertFalse("corrupt gzip bundle should be rejected",
             CertStore.importFromQrContent(ctx, junk))
         assertEquals(0, CertStore.clientCerts(ctx).size)
     }
 
-    private fun writeSegment(out: ByteArrayOutputStream, data: ByteArray) {
-        out.write((data.size ushr 8) and 0xff)
-        out.write(data.size and 0xff)
-        out.write(data)
-    }
-
     @Test
     fun qrBitmapRenders() {
-        val bmp = QrCodes.encode("clipshare-ca:hello", 256)
+        val bmp = QrCodes.encode("clipshare-p12:hello", 256)
         assertNotNull(bmp)
         assertNotNull("QR bitmap should have pixels", bmp!!.getPixel(bmp.width / 2, bmp.height / 2))
     }

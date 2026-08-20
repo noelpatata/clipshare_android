@@ -24,6 +24,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import win.downops.clipshare.certs.ClientTls
+import win.downops.clipshare.util.Constants
 import java.math.BigInteger
 import java.security.KeyPair
 import java.security.KeyPairGenerator
@@ -139,6 +140,37 @@ class WsClientTlsTest {
         client.stop()
     }
 
+    @Test
+    fun stopsReconnectingAndShowsErrorWhenServerRejectsConnection() {
+        // A server that rejects us with a policy violation (e.g. wrong shared
+        // token) closes the socket right after the handshake with code 1008.
+        // The client must surface the server's reason and NOT retry in a loop.
+        val errors = LinkedBlockingQueue<String>()
+        server.enqueue(
+            MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+                override fun onOpen(webSocket: WebSocket, response: Response) {
+                    webSocket.close(Constants.WebSocket.POLICY_REJECTION_CODE, "invalid token")
+                }
+            }),
+        )
+        server.start()
+        val clips = LinkedBlockingQueue<Protocol.Clipboard>()
+        val client = buildClient(
+            url = server.url("/ws").toString(),
+            clips = clips,
+            onError = { errors.add(it) },
+        )
+
+        client.start()
+        val msg = errors.await()
+        assertTrue("expected a rejection message, got: $msg", msg.contains("Connection rejected by server"))
+        assertTrue("expected the server's reason to be included, got: $msg", msg.contains("invalid token"))
+        // No reconnect storm: the server must only ever see the single attempt.
+        Thread.sleep(1500)
+        assertEquals("rejected connections must not trigger a reconnect loop", 1, server.requestCount)
+        client.stop()
+    }
+
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
@@ -178,10 +210,11 @@ class WsClientTlsTest {
 
     private fun buildClient(
         url: String,
-        tls: ClientTls,
+        tls: ClientTls? = null,
         clips: LinkedBlockingQueue<Protocol.Clipboard>,
         verifyHostname: Boolean = true,
         onConnectFailed: () -> Unit = {},
+        onError: (String) -> Unit = {},
     ): WsClient = WsClient(
         url = url,
         hello = Protocol.hello("android-test", "android", "1.0.0"),
@@ -191,7 +224,7 @@ class WsClientTlsTest {
         onDisconnected = { _ -> },
         onReconnecting = { _ -> },
         onConnectFailed = onConnectFailed,
-        onError = { _ -> },
+        onError = onError,
         verifyHostname = verifyHostname,
     )
 

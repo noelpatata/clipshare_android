@@ -40,6 +40,7 @@ class WsServer(
     private val deviceName: String,
     private val keyStore: KeyStore?,
     private val keyStorePassword: CharArray?,
+    private val trustStore: KeyStore? = null,
     private val serverToken: String = "",
     private val onReceived: (from: String, clip: Protocol.Clipboard) -> Unit,
     private val onClientChange: (count: Int) -> Unit,
@@ -81,6 +82,10 @@ class WsServer(
                     keyStorePassword = { keyStorePassword },
                     privateKeyPassword = { keyStorePassword },
                 ) {
+                    // A trust store turns on client authentication: with TLS
+                    // enabled the server always requires a client certificate
+                    // signed by its own CA (mutual TLS).
+                    trustStore = this@WsServer.trustStore
                     this.port = this@WsServer.port
                     this.host = bindHost
                 }

@@ -23,6 +23,18 @@ enum class AppScreen(
 
         fun fromRoute(route: String): AppScreen = byRoute[route] ?: Main
 
-        fun ordered(): List<AppScreen> = listOf(Main, Capture, Logs, Settings)
+        /**
+         * The screens shown in the bottom bar and pager. The Logs screen is
+         * only included when [logsEnabled] (the advanced "Enable logs" toggle).
+         */
+        fun ordered(logsEnabled: Boolean = false): List<AppScreen> = buildList {
+            add(Main)
+            add(Capture)
+            if (logsEnabled) add(Logs)
+            add(Settings)
+        }
     }
 }
+
+/** Returns the index of [screen] in the ordered screen list. */
+fun AppScreen.index(logsEnabled: Boolean = false): Int = AppScreen.ordered(logsEnabled).indexOf(this)

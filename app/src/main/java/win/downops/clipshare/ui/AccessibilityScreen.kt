@@ -62,7 +62,7 @@ fun AccessibilityScreen(context: Context) {
         else -> Color(0xFF9E9E9E)
     }
     val status = when {
-        capturing -> "Capturing copies from other apps"
+        capturing -> "Capturing clipboard in the background"
         enabledInSettings -> "Enabled in system settings, but the service is not running"
         else -> "Disabled"
     }
