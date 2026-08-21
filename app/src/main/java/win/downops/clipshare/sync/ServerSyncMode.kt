@@ -1,13 +1,11 @@
-package win.downops.clipshare.sync.servermode
+package win.downops.clipshare.sync
 
 import android.content.Context
+import win.downops.clipshare.certs.ServerCertManager
 import win.downops.clipshare.discover.DiscoveryAdvertiser
 import win.downops.clipshare.logs.Log
 import win.downops.clipshare.settings.Prefs
 import win.downops.clipshare.state.AppState
-import win.downops.clipshare.sync.SyncEvents
-import win.downops.clipshare.sync.SyncMode
-import win.downops.clipshare.sync.SyncSend
 import win.downops.clipshare.util.Constants
 import win.downops.clipshare.ws.Protocol
 import win.downops.clipshare.ws.WsServer
@@ -15,9 +13,6 @@ import win.downops.clipshare.ws.WsServer
 /**
  * Server-mode strategy: listens for inbound WebSocket connections from other
  * ClipShare clients and advertises itself via mDNS/UDP beacons.
- *
- * TLS material preparation lives in [ServerTls]; this class wires the server,
- * relays received clips to the other clients, and handles sends.
  */
 class ServerSyncMode(
     private val context: Context,
@@ -40,8 +35,32 @@ class ServerSyncMode(
 
     private fun startServerMode() {
         val port = Prefs.serverPort(context)
-        val material = ServerTls(context) { events.updateNotification(it) }
-            .prepare(Prefs.serverTlsEnabled(context)) ?: return
+        val tls = Prefs.serverTlsEnabled(context)
+
+        if (tls && !ServerCertManager.hasCerts(context)) {
+            Log.i("SyncService", "generating server certificates")
+            ServerCertManager.generate(context, Prefs.deviceName(context))
+        }
+
+        val keyStore = if (tls) ServerCertManager.loadKeyStore(context) else null
+        if (tls && keyStore == null) {
+            val msg = "Server TLS enabled but certificate failed to load"
+            Log.e("SyncService", msg)
+            AppState.onError(msg)
+            events.updateNotification(msg)
+            return
+        }
+
+        // mTLS is always required with server TLS: only client certificates
+        // signed by this server's CA are accepted.
+        val trustStore = if (tls) ServerCertManager.loadTrustStore(context) else null
+        if (tls && trustStore == null) {
+            val msg = "Server TLS enabled but CA trust store failed to load"
+            Log.e("SyncService", msg)
+            AppState.onError(msg)
+            events.updateNotification(msg)
+            return
+        }
 
         val bindHost = when (Prefs.serverBindIpVersion(context)) {
             Prefs.IP_VERSION_IPV4 -> "0.0.0.0"
@@ -52,9 +71,9 @@ class ServerSyncMode(
             port = port,
             bindHost = bindHost,
             deviceName = Prefs.deviceName(context),
-            keyStore = material.keyStore,
-            keyStorePassword = material.password,
-            trustStore = material.trustStore,
+            keyStore = keyStore,
+            keyStorePassword = if (tls) Constants.Pkcs12.PASSWORD.toCharArray() else null,
+            trustStore = trustStore,
             serverToken = Prefs.serverToken(context),
             onReceived = { from, clip ->
                 events.receive(clip)
@@ -73,9 +92,10 @@ class ServerSyncMode(
         AppState.onServerStarted(port)
         events.updateNotification("Server running on :$port")
 
-        val adv = DiscoveryAdvertiser(context, Prefs.discoveryBeaconPort(context))
+        val beaconPort = Prefs.discoveryBeaconPort(context)
+        val adv = DiscoveryAdvertiser(context, beaconPort)
         advertiser = adv
-        adv.start(Prefs.deviceName(context), port, Prefs.serverTlsEnabled(context))
+        adv.start(Prefs.deviceName(context), port, tls)
     }
 
     /** Broadcast a just-received clipboard item to every other connected client. */

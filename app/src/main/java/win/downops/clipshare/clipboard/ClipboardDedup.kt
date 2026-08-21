@@ -21,9 +21,6 @@ object ClipboardDedup {
     private var lastHash = 0L
 
     @Volatile
-    private var lastSentHash = 0L
-
-    @Volatile
     private var lastUri: Uri? = null
 
     @Volatile
@@ -41,18 +38,6 @@ object ClipboardDedup {
         lastHash = h
         return true
     }
-
-    /** Records content this service sent (text or image), so received echoes
-     * of the same bytes are not processed. */
-    @Synchronized
-    fun markSent(bytes: ByteArray) {
-        lastSentHash = hash(bytes)
-    }
-
-    /** Returns true if the given bytes match the last sent content; false
-     * otherwise. Used to avoid processing our own echo. */
-    @Synchronized
-    fun isLastSent(bytes: ByteArray): Boolean = hash(bytes) == lastSentHash
 
     /** Records content this service wrote to the local clipboard after receiving
      * it from a remote peer, so the same bytes are not pushed back. */

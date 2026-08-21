@@ -183,7 +183,7 @@ object AppState {
         _serverClientCount.value = count
     }
 
-    fun onReceived(ctx: Context, text: String, from: String): HistoryEntry {
+    fun onReceived(ctx: Context, text: String, from: String) {
         val entry = HistoryManager.addText(
             ctx = ctx,
             text = text,
@@ -191,7 +191,6 @@ object AppState {
             incoming = true,
         )
         _history.value = listOf(entry) + _history.value
-        return entry
     }
 
     fun onReceivedImage(ctx: Context, bytes: ByteArray, mime: String, from: String): HistoryEntry? {
