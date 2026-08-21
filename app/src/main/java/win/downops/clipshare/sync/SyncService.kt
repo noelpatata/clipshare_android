@@ -1,33 +1,21 @@
 package win.downops.clipshare.sync
 
-import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
-import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
-import androidx.core.app.NotificationCompat
-import androidx.core.content.FileProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import win.downops.clipshare.MainActivity
-import win.downops.clipshare.R
 import win.downops.clipshare.certs.CertStore
-import win.downops.clipshare.clipboard.ClipboardWriter
-import win.downops.clipshare.history.ClipItem
-import win.downops.clipshare.history.HistoryEntry
-import win.downops.clipshare.history.image.ImageHistoryStore
 import win.downops.clipshare.logs.Log
 import win.downops.clipshare.settings.Prefs
 import win.downops.clipshare.state.AppState
 import win.downops.clipshare.util.Constants
-import win.downops.clipshare.ws.Protocol
 
 /**
  * Foreground service that runs in either client or server mode.
@@ -37,7 +25,7 @@ import win.downops.clipshare.ws.Protocol
  * it starts the active mode, exposes send/switchTo to the UI and tile, and
  * owns the shared clipboard-receive + notification behavior ([SyncEvents]).
  */
-class SyncService : Service(), SyncEvents {
+class SyncService : Service() {
 
     private var mode: SyncMode? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -48,7 +36,8 @@ class SyncService : Service(), SyncEvents {
         super.onCreate()
         Log.init(this)
         createChannel()
-        startForeground(Constants.Notification.ID, buildNotification("Starting..."))
+        val events = SyncEvents(this)
+        startForeground(Constants.Notification.ID, events.buildNotification("Starting..."))
         Log.i("SyncService", "onCreate")
         AppState.onServiceStarted(this)
         AppState.setAppMode(Prefs.appMode(this))
@@ -62,9 +51,9 @@ class SyncService : Service(), SyncEvents {
         }
 
         val m = if (Prefs.appMode(this) == Prefs.APP_MODE_SERVER) {
-            ServerSyncMode(this, this)
+            ServerSyncMode(this, events)
         } else {
-            ClientSyncMode(this, this)
+            ClientSyncMode(this, events)
         }
         mode = m
         scope.launch {
@@ -105,54 +94,8 @@ class SyncService : Service(), SyncEvents {
     }
 
     // ------------------------------------------------------------------
-    // SyncEvents: shared inbound handling
-    // ------------------------------------------------------------------
-
-    override fun receive(clip: Protocol.Clipboard) {
-        val image = clip.image
-        if (image != null) {
-            Log.i("SyncService", "received ${image.size} byte ${clip.mime ?: "image"}")
-            val mime = clip.mime ?: Constants.Mime.IMAGE_PNG
-            // Persist to history first; the clipboard can then reuse that file,
-            // so a received image is never duplicated in the cache.
-            val entry = AppState.onReceivedImage(this, image, mime, clip.from)
-            setClipboardFromHistory(entry, mime)
-        } else {
-            val text = clip.text
-            if (text != null) {
-                Log.i("SyncService", "received ${text.length} chars")
-                writeClipboard(text)
-                AppState.onReceived(this, text, clip.from)
-            }
-        }
-    }
-
-    private fun writeClipboard(text: String) {
-        // Label the clip as app-internal so capture paths skip it and we avoid
-        // echoing received content back to peers (and avoid duplicate history).
-        ClipboardWriter.writeText(this, Constants.Clipboard.INTERNAL_CLIP_LABEL, text)
-    }
-
-    /** Puts a received image on the clipboard from its persisted history file. */
-    private fun setClipboardFromHistory(entry: HistoryEntry?, mime: String) {
-        val clip = entry?.clip as? ClipItem.Image ?: return
-        val file = ImageHistoryStore.imageFile(this, clip.imageId) ?: return
-        if (!file.exists()) return
-        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
-        // Label the clip as app-internal so capture paths skip it and we avoid
-        // echoing received content back to peers (and avoid duplicate history).
-        ClipboardWriter.writeImage(this, Constants.Clipboard.INTERNAL_CLIP_LABEL, uri, mime)
-        Log.i("SyncService", "placed received image on clipboard from history: ${file.name}")
-    }
-
-    // ------------------------------------------------------------------
     // Notification
     // ------------------------------------------------------------------
-
-    override fun updateNotification(text: String) {
-        val nm = getSystemService(NotificationManager::class.java)
-        nm.notify(Constants.Notification.ID, buildNotification(text))
-    }
 
     private fun createChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -163,20 +106,6 @@ class SyncService : Service(), SyncEvents {
             channel.description = "Clipboard sync and server"
             nm.createNotificationChannel(channel)
         }
-    }
-
-    private fun buildNotification(text: String): Notification {
-        val intent = Intent(this, MainActivity::class.java)
-        val pi = PendingIntent.getActivity(
-            this, 0, intent, PendingIntent.FLAG_IMMUTABLE
-        )
-        return NotificationCompat.Builder(this, Constants.Notification.CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_stat_clipboard)
-            .setContentTitle("ClipShare")
-            .setContentText(text)
-            .setContentIntent(pi)
-            .setOngoing(true)
-            .build()
     }
 
     override fun onDestroy() {

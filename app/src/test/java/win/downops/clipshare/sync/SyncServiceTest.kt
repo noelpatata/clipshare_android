@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import org.junit.After
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -12,8 +13,10 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import win.downops.clipshare.clipboard.ClipboardDedup
 import win.downops.clipshare.settings.Prefs
 import win.downops.clipshare.state.AppState
+import win.downops.clipshare.ws.Protocol
 
 /**
  * Service-level regression tests for rapid start/stop cycles (the "spam the
@@ -71,5 +74,22 @@ class SyncServiceTest {
         }
 
         assertTrue(!AppState.running.value)
+    }
+
+    @Test
+    fun receiveMarksContentRemoteWrittenSoItIsNeverEchoed() {
+        Prefs.setAppMode(ctx, Prefs.APP_MODE_CLIENT)
+        Prefs.setConnectionMode(ctx, Prefs.MODE_WHITELIST)
+        Prefs.setWhitelist(ctx, emptyList())
+
+        val text = "hello from daemon"
+        SyncEvents(ctx).receive(
+            Protocol.Clipboard(text = text, image = null, mime = null, from = "downops")
+        )
+
+        // Received bytes are recorded in the dedup: capture paths must not
+        // claim them again (loop protection), other content stays claimable.
+        assertFalse(ClipboardDedup.claim(text.toByteArray(Charsets.UTF_8)))
+        assertTrue(ClipboardDedup.claim("unrelated copy".toByteArray(Charsets.UTF_8)))
     }
 }
