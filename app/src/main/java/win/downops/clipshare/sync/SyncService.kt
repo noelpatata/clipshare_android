@@ -1,31 +1,20 @@
 package win.downops.clipshare.sync
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.os.IBinder
-import androidx.core.app.NotificationCompat
-import androidx.core.content.FileProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import win.downops.clipshare.MainActivity
-import win.downops.clipshare.R
 import win.downops.clipshare.certs.CertStore
-import win.downops.clipshare.clipboard.ClipboardWriter
-import win.downops.clipshare.history.ClipItem
-import win.downops.clipshare.history.HistoryEntry
-import win.downops.clipshare.history.image.ImageHistoryStore
 import win.downops.clipshare.logs.Log
 import win.downops.clipshare.settings.Prefs
 import win.downops.clipshare.state.AppState
+import win.downops.clipshare.sync.clientmode.ClientSyncMode
+import win.downops.clipshare.sync.servermode.ServerSyncMode
 import win.downops.clipshare.util.Constants
 import win.downops.clipshare.ws.Protocol
 
@@ -35,20 +24,25 @@ import win.downops.clipshare.ws.Protocol
  * The mode-specific logic lives in [ClientSyncMode] and [ServerSyncMode],
  * chosen here from the configured app mode. This class only coordinates:
  * it starts the active mode, exposes send/switchTo to the UI and tile, and
- * owns the shared clipboard-receive + notification behavior ([SyncEvents]).
+ * delegates the shared inbound side-effects to [SyncClipboardReceiver] (writing
+ * received clips) and [SyncNotifications] (foreground notification).
  */
 class SyncService : Service(), SyncEvents {
 
     private var mode: SyncMode? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private lateinit var notifications: SyncNotifications
+    private lateinit var receiver: SyncClipboardReceiver
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         Log.init(this)
-        createChannel()
-        startForeground(Constants.Notification.ID, buildNotification("Starting..."))
+        notifications = SyncNotifications(this)
+        receiver = SyncClipboardReceiver(this)
+        notifications.createChannel()
+        startForeground(Constants.Notification.ID, notifications.build("Starting..."))
         Log.i("SyncService", "onCreate")
         AppState.onServiceStarted(this)
         AppState.setAppMode(Prefs.appMode(this))
@@ -109,74 +103,11 @@ class SyncService : Service(), SyncEvents {
     // ------------------------------------------------------------------
 
     override fun receive(clip: Protocol.Clipboard) {
-        val image = clip.image
-        if (image != null) {
-            Log.i("SyncService", "received ${image.size} byte ${clip.mime ?: "image"}")
-            val mime = clip.mime ?: Constants.Mime.IMAGE_PNG
-            // Persist to history first; the clipboard can then reuse that file,
-            // so a received image is never duplicated in the cache.
-            val entry = AppState.onReceivedImage(this, image, mime, clip.from)
-            setClipboardFromHistory(entry, mime)
-        } else {
-            val text = clip.text
-            if (text != null) {
-                Log.i("SyncService", "received ${text.length} chars")
-                writeClipboard(text)
-                AppState.onReceived(this, text, clip.from)
-            }
-        }
+        receiver.receive(clip)
     }
-
-    private fun writeClipboard(text: String) {
-        // Label the clip as app-internal so capture paths skip it and we avoid
-        // echoing received content back to peers (and avoid duplicate history).
-        ClipboardWriter.writeText(this, Constants.Clipboard.INTERNAL_CLIP_LABEL, text)
-    }
-
-    /** Puts a received image on the clipboard from its persisted history file. */
-    private fun setClipboardFromHistory(entry: HistoryEntry?, mime: String) {
-        val clip = entry?.clip as? ClipItem.Image ?: return
-        val file = ImageHistoryStore.imageFile(this, clip.imageId) ?: return
-        if (!file.exists()) return
-        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
-        // Label the clip as app-internal so capture paths skip it and we avoid
-        // echoing received content back to peers (and avoid duplicate history).
-        ClipboardWriter.writeImage(this, Constants.Clipboard.INTERNAL_CLIP_LABEL, uri, mime)
-        Log.i("SyncService", "placed received image on clipboard from history: ${file.name}")
-    }
-
-    // ------------------------------------------------------------------
-    // Notification
-    // ------------------------------------------------------------------
 
     override fun updateNotification(text: String) {
-        val nm = getSystemService(NotificationManager::class.java)
-        nm.notify(Constants.Notification.ID, buildNotification(text))
-    }
-
-    private fun createChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val nm = getSystemService(NotificationManager::class.java)
-            val channel = NotificationChannel(
-                Constants.Notification.CHANNEL_ID, "ClipShare sync", NotificationManager.IMPORTANCE_LOW
-            )
-            channel.description = "Clipboard sync and server"
-            nm.createNotificationChannel(channel)
-        }
-    }
-
-    private fun buildNotification(text: String): Notification {
-        val intent = Intent(this, MainActivity::class.java)
-        val pi = PendingIntent.getActivity(
-            this, 0, intent, PendingIntent.FLAG_IMMUTABLE
-        )
-        return NotificationCompat.Builder(this, Constants.Notification.CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_stat_clipboard)
-            .setContentTitle("ClipShare")
-            .setContentText(text)
-            .setContentIntent(pi)
-            .setOngoing(true)
-            .build()
+        notifications.update(text)
     }
 
     override fun onDestroy() {
